@@ -1,15 +1,15 @@
-/* LifeMapz - Visual Time Horizons App v3.1.1
+/* LifeMapz - Visual Time Horizons App v3.1.3
    Changes:
-   - Mobile-safe Google sign-in (popup -> redirect fallback + redirect completion)
-   - Versioned SW registration + auto-reload on update
-   - Runtime label fixes: VERKS->VIEWS, Grand(groc)->Dark Mode, Sync-Glashed->Cloud Sync
-   - Only specific "Visual Horizons" titles changed to "Hours" (hours card + cascade bottom)
-   - Safe sidebar navigation for Days/Weeks/etc. (scrolls within Horizons view)
-   - CloudSyncService template-string fixes
-   - Cloud Sync: reconnects quietly only if previously enabled (no “disabled” toast on login)
+   - Fixed Cloud Sync URL construction & template strings
+   - JSONBin v3 request/response shape (record wrapper) & safe client fallback
+   - Stronger error handling/logging across sync paths
+   - AUTO_LINK_CLOUD: persist/recover session under users/{uid}/app/lifemapz with opt-out
+   - Status badge reflects Cloud vs Account sync
 */
 
-const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.1";
+const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.3";
+/** If true, store/read cloud session id in Firestore so devices auto-join after login */
+const AUTO_LINK_CLOUD = true;
 
 /* --------------------- Firebase --------------------- */
 const firebaseConfig = {
@@ -21,10 +21,13 @@ const firebaseConfig = {
   appId: "1:305063601285:web:6fb6eebbe4f00f20dcf5ec"
 };
 
-firebase.initializeApp(firebaseConfig);
+// Initialize Firebase only if not already initialized
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
 const auth = firebase.auth();
-const db = firebase.firestore();      // optional
-const storage = firebase.storage();   // optional
+const db = firebase.firestore();
+const storage = firebase.storage?.();
 
 // 🔒 Keep auth across redirects/tabs (esp. mobile/PWA)
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
@@ -53,7 +56,12 @@ const http = {
     }
     const ctl = new AbortController();
     const id = setTimeout(() => ctl.abort(), timeout);
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body), signal: ctl.signal });
+    const res = await fetch(url, { 
+      method: "POST", 
+      headers: { "Content-Type": "application/json", ...headers }, 
+      body: JSON.stringify(body), 
+      signal: ctl.signal 
+    });
     clearTimeout(id);
     const data = await res.json().catch(() => ({}));
     return { status: res.status, data, headers: Object.fromEntries(res.headers.entries()) };
@@ -66,32 +74,55 @@ const http = {
     }
     const ctl = new AbortController();
     const id = setTimeout(() => ctl.abort(), timeout);
-    const res = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body), signal: ctl.signal });
+    const res = await fetch(url, { 
+      method: "PUT", 
+      headers: { "Content-Type": "application/json", ...headers }, 
+      body: JSON.stringify(body), 
+      signal: ctl.signal 
+    });
     clearTimeout(id);
     const data = await res.json().catch(() => ({}));
     return { status: res.status, data, headers: Object.fromEntries(res.headers.entries()) };
   }
 };
 
-/* --------------------- CloudSyncService --------------------- */
+/* --------------------- CloudSyncService (fixed) --------------------- */
 class CloudSyncService {
   constructor() {
-    this.pantry  = { base: "https://getpantry.cloud/apiv1", pantryId: null, basket: "lifemapz" };
-    this.jsonbin = { base: "https://api.jsonbin.io/v3",      binId: null };
-    this.backend = null;
+    this.pantry = { 
+      base: "https://getpantry.cloud/apiv1/pantry",
+      basket: "lifemapz",
+      pantryId: null
+    };
+    // JSONBin fallback is only used if a key is provided at runtime via window.JSONBIN_KEY
+    this.jsonbin = { 
+      base: "https://api.jsonbin.io/v3/b", 
+      binId: null,
+      get headers() {
+        const key = (typeof window !== "undefined" && window.JSONBIN_KEY) ? window.JSONBIN_KEY : null;
+        return key ? { "Content-Type": "application/json", "X-Master-Key": key } : { "Content-Type": "application/json" };
+      },
+      get enabled() {
+        return !!(typeof window !== "undefined" && window.JSONBIN_KEY);
+      }
+    };
+    this.backend = null; // "pantry" | "jsonbin"
     this.isEnabled = false;
     this.syncInterval = null;
     this.dataChangeCallbacks = [];
     this.lastSyncTime = null;
     this._lastRemoteStamp = null;
+    this._sessionId = null;
   }
 
   async enable(sessionCode = null) {
+    console.log("🔗 Enabling Cloud Sync with session:", sessionCode);
     if (!sessionCode) {
       const saved = this._loadSession();
       if (saved) sessionCode = saved;
     }
     if (sessionCode && this._isLegacyKvdbCode(sessionCode)) {
+      console.log("🔄 Migrating from legacy KVDB session");
       await this._migrateFromKvdb(sessionCode);
       sessionCode = this._loadSession();
     }
@@ -102,39 +133,60 @@ class CloudSyncService {
       await this._createPantrySession();
     }
 
+    // Test connection and initialize data
     try {
+      console.log("📡 Testing backend:", this.backend);
       const current = await this._getRemote();
-      if (!current) await this._saveRemote(this._initDoc());
-    } catch {
-      if (this.backend === "pantry") {
+      if (!current) {
+        console.log("📝 Initializing remote doc");
+        await this._saveRemote(this._initDoc());
+      }
+    } catch (error) {
+      console.error("❌ Backend test failed:", error);
+      if (this.backend === "pantry" && this.jsonbin.enabled) {
+        console.log("🔄 Falling back to JSONBin");
         await this._createJsonBinSession();
         await this._saveRemote(this._initDoc());
+      } else {
+        throw new Error(`Cloud Sync initialization failed: ${error.message}`);
       }
     }
 
     this.isEnabled = true;
     this._startPolling();
+    console.log("✅ Cloud Sync enabled");
     return true;
   }
 
   disable() {
+    console.log("🔴 Disabling Cloud Sync");
     this.isEnabled = false;
     this._lastRemoteStamp = null;
-    if (this.syncInterval) clearInterval(this.syncInterval);
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
   }
 
   async sync(localData) {
-    if (!this.isEnabled) return localData;
+    if (!this.isEnabled) {
+      console.log("⚠️ Sync skipped: not enabled");
+      return localData;
+    }
     try {
+      console.log("🔄 Sync starting");
       const remote = await this._getRemote();
       const merged = this._merge(localData, remote);
       await this._saveRemote(merged);
       this.lastSyncTime = new Date();
       this._lastRemoteStamp = merged?.lastSaved || null;
+      console.log("✅ Sync done");
       return merged;
-    } catch {
-      if (this.backend === "pantry") {
+    } catch (error) {
+      console.error("❌ Sync failed:", error);
+      if (this.backend === "pantry" && this.jsonbin.enabled) {
         try {
+          console.log("🔄 Retrying via JSONBin");
           await this._createJsonBinSession();
           const remote = await this._getRemote();
           const merged = this._merge(localData, remote);
@@ -142,98 +194,143 @@ class CloudSyncService {
           this.lastSyncTime = new Date();
           this._lastRemoteStamp = merged?.lastSaved || null;
           return merged;
-        } catch {}
+        } catch (fallbackError) {
+          console.error("❌ Fallback sync also failed:", fallbackError);
+        }
       }
       return localData;
     }
   }
 
   onDataChange(cb) { if (typeof cb === "function") this.dataChangeCallbacks.push(cb); }
-
-  get sessionId() {
-    if (this.backend === "pantry"  && this.pantry.pantryId)  return `pantry:${this.pantry.pantryId}`;
-    if (this.backend === "jsonbin" && this.jsonbin.binId)    return `jsonbin:${this.jsonbin.binId}`;
-    return null;
-  }
+  get sessionId() { return this._sessionId; }
 
   getSyncStatus() {
-    return {
-      enabled: this.isEnabled,
-      backend: this.backend,
-      sessionId: this.sessionId,
-      lastSync: this.lastSyncTime
-    };
+    return { enabled: this.isEnabled, backend: this.backend, sessionId: this.sessionId, lastSync: this.lastSyncTime };
   }
 
   async _parseAndSetSession(code) {
+    console.log("🔍 Parsing session code:", code);
     if (code.startsWith("pantry:")) {
       this.backend = "pantry";
       this.pantry.pantryId = code.split(":")[1];
+      this._sessionId = code;
       this._saveSession();
       return;
     }
     if (code.startsWith("jsonbin:")) {
       this.backend = "jsonbin";
       this.jsonbin.binId = code.split(":")[1];
+      this._sessionId = code;
       this._saveSession();
       return;
     }
-    // raw pantry id
+    // Assume raw pantry id
     this.backend = "pantry";
     this.pantry.pantryId = code;
+    this._sessionId = `pantry:${code}`;
     this._saveSession();
   }
 
   async _createPantrySession() {
-    const res = await http.post(`${this.pantry.base}/pantry`, { description: "LifeMapz Sync" });
-    const pid = res?.data?.pantryId || res?.data?.id || res?.pantryId || res?.id;
-    if (!pid) throw new Error("GetPantry: failed to create pantry");
-    this.pantry.pantryId = pid;
-    this.backend = "pantry";
-    this._saveSession();
-    await http.put(`${this.pantry.base}/pantry/${this.pantry.pantryId}/basket/${this.pantry.basket}`, this._initDoc());
+    try {
+      console.log("📦 Creating Pantry session");
+      const res = await http.post(`${this.pantry.base}`, { description: "LifeMapz Sync Session" });
+      const pid = res?.data?.pantryId || res?.data?.id;
+      if (!pid) throw new Error("GetPantry: no pantryId in response");
+      this.pantry.pantryId = pid;
+      this.backend = "pantry";
+      this._sessionId = `pantry:${pid}`;
+      this._saveSession();
+      // Initialize basket
+      await http.put(`${this.pantry.base}/${this.pantry.pantryId}/basket/${this.pantry.basket}`, this._initDoc());
+      console.log("✅ Pantry session created:", this._sessionId);
+    } catch (error) {
+      console.error("❌ Pantry session creation failed:", error);
+      throw error;
+    }
   }
 
   async _createJsonBinSession() {
-    const init = this._initDoc();
-    const res = await http.post(`${this.jsonbin.base}/b`, { record: init });
-    const id = res?.data?.metadata?.id || res?.data?.id || res?.metadata?.id || res?.id;
-    if (!id) throw new Error("JSONBin: failed to create bin");
-    this.jsonbin.binId = id;
-    this.backend = "jsonbin";
-    this._saveSession();
+    if (!this.jsonbin.enabled) throw new Error("JSONBin disabled (no key provided)");
+    try {
+      console.log("🗃️ Creating JSONBin session");
+      const initData = this._initDoc();
+      const res = await http.post(`${this.jsonbin.base}`, { record: initData }, { headers: this.jsonbin.headers });
+      const id = res?.data?.metadata?.id || res?.data?.id;
+      if (!id) throw new Error("JSONBin: no id in response");
+      this.jsonbin.binId = id;
+      this.backend = "jsonbin";
+      this._sessionId = `jsonbin:${id}`;
+      this._saveSession();
+      console.log("✅ JSONBin session created:", this._sessionId);
+    } catch (error) {
+      console.error("❌ JSONBin session creation failed:", error);
+      throw error;
+    }
   }
 
   async _getRemote() {
-    if (this.backend === "pantry") {
-      const res = await http.get(`${this.pantry.base}/pantry/${this.pantry.pantryId}/basket/${this.pantry.basket}`);
-      if (res.status === 404) return null;
-      return (res && typeof res.data === "object") ? res.data : null;
-    }
-    if (this.backend === "jsonbin") {
-      const res = await http.get(`${this.jsonbin.base}/b/${this.jsonbin.binId}/latest`, { headers: { "X-Bin-Meta": "false" } });
-      if (res.status === 404) return null;
-      return res?.data?.record ?? res?.record ?? null;
+    if (!this.backend) throw new Error("No backend selected");
+    try {
+      if (this.backend === "pantry") {
+        if (!this.pantry.pantryId) throw new Error("Pantry ID not set");
+        const url = `${this.pantry.base}/${this.pantry.pantryId}/basket/${this.pantry.basket}`;
+        console.log("📥 Pantry GET:", url);
+        const res = await http.get(url);
+        if (res.status === 404) return null;
+        if (res.status !== 200) throw new Error(`Pantry status ${res.status}`);
+        return (res && typeof res.data === "object") ? res.data : null;
+      }
+      if (this.backend === "jsonbin") {
+        if (!this.jsonbin.binId) throw new Error("JSONBin ID not set");
+        const url = `${this.jsonbin.base}/${this.jsonbin.binId}/latest`;
+        console.log("📥 JSONBin GET:", url);
+        const res = await http.get(url, { headers: { ...this.jsonbin.headers, "X-Bin-Meta": "false" } });
+        if (res.status === 404) return null;
+        if (res.status !== 200) throw new Error(`JSONBin status ${res.status}`);
+        const body = res?.data?.record ?? res?.record ?? res?.data ?? null;
+        return (body && typeof body === "object") ? body : null;
+      }
+    } catch (error) {
+      console.error("❌ Remote fetch failed:", error);
+      throw error;
     }
     return null;
   }
 
   async _saveRemote(data) {
-    if (this.backend === "pantry") {
-      await http.put(`${this.pantry.base}/pantry/${this.pantry.pantryId}/basket/${this.pantry.basket}`, data);
-      return;
+    if (!this.backend) throw new Error("No backend selected");
+    try {
+      if (this.backend === "pantry") {
+        if (!this.pantry.pantryId) throw new Error("Pantry ID not set");
+        const url = `${this.pantry.base}/${this.pantry.pantryId}/basket/${this.pantry.basket}`;
+        console.log("📤 Pantry PUT:", url);
+        await http.put(url, data);
+        console.log("✅ Saved to Pantry");
+        return;
+      }
+      if (this.backend === "jsonbin") {
+        if (!this.jsonbin.binId) throw new Error("JSONBin ID not set");
+        const url = `${this.jsonbin.base}/${this.jsonbin.binId}`;
+        console.log("📤 JSONBin PUT:", url);
+        await http.put(url, { record: data }, { headers: this.jsonbin.headers });
+        console.log("✅ Saved to JSONBin");
+        return;
+      }
+    } catch (error) {
+      console.error("❌ Remote save failed:", error);
+      throw error;
     }
-    if (this.backend === "jsonbin") {
-      await http.put(`${this.jsonbin.base}/b/${this.jsonbin.binId}`, { record: data });
-      return;
-    }
-    throw new Error("No backend selected");
+    throw new Error("Unsupported backend");
   }
 
   _merge(localData, remoteData) {
-    if (!remoteData) return localData;
-    if (!localData?.lastSaved) return remoteData;
-    return new Date(remoteData.lastSaved) > new Date(localData.lastSaved) ? remoteData : localData;
+    if (!remoteData) { console.log("🔄 No remote; using local"); return localData; }
+    if (!localData?.lastSaved) { console.log("🔄 No local ts; using remote"); return remoteData; }
+    const remoteIsNewer = new Date(remoteData.lastSaved) > new Date(localData.lastSaved);
+    console.log(`🔄 Merge: using ${remoteIsNewer ? "remote" : "local"}`);
+    return remoteIsNewer ? remoteData : localData;
   }
 
   _startPolling() {
@@ -244,35 +341,34 @@ class CloudSyncService {
         const remote = await this._getRemote();
         const stamp = remote?.lastSaved || null;
         if (stamp && stamp !== this._lastRemoteStamp) {
+          console.log("🔔 Remote changed");
           this._lastRemoteStamp = stamp;
-          this.dataChangeCallbacks.forEach(cb => cb(remote));
+          this.dataChangeCallbacks.forEach(cb => { try { cb(remote); } catch (e) { console.error("Callback error:", e); } });
         }
-      } catch {}
+      } catch (error) {
+        console.warn("⚠️ Polling error:", error);
+      }
     }, 12000);
+    console.log("🔄 Polling started");
   }
 
   _initDoc() {
     const now = new Date().toISOString();
-    return {
-      version: APP_VERSION,
-      tasks: [],
-      lastSaved: now,
-      createdAt: now
-    };
+    return { version: APP_VERSION, tasks: [], lastSaved: now, createdAt: now, app: "LifeMapz" };
   }
 
   _saveSession() {
-    const code = this.sessionId;
-    if (code) localStorage.setItem("lifemapz-sync-session", code);
+    if (this._sessionId) {
+      localStorage.setItem("lifemapz-sync-session", this._sessionId);
+      console.log("💾 Saved session:", this._sessionId);
+    }
   }
 
   _loadSession() {
     const direct = localStorage.getItem("lifemapz-sync-session");
-    if (direct) return direct;
+    if (direct) { console.log("📖 Loaded session:", direct); return direct; }
     const cfg = localStorage.getItem("lifemapz-sync-config");
-    if (cfg) {
-      try { return JSON.parse(cfg)?.sessionId || null; } catch {}
-    }
+    if (cfg) { try { return JSON.parse(cfg)?.sessionId || null; } catch { /* ignore */ } }
     return null;
   }
 
@@ -283,27 +379,25 @@ class CloudSyncService {
   }
 
   async _migrateFromKvdb(code) {
+    console.log("🔄 Migrating from KVDB:", code);
     try {
       const bucketId = code.startsWith("kvdb:") ? code.split(":")[1] : code;
       let legacyData = null;
       try {
         const res = await http.get(`https://kvdb.io/${bucketId}/timestripe`, { responseType: "text" });
-        if (res && res.status >= 200 && res.status < 300) {
-          try { legacyData = JSON.parse(res.data); } catch {}
+        if (res && res.status >= 200 && res.status < 300 && res.data) {
+          try { legacyData = JSON.parse(res.data); } catch { /* ignore */ }
         }
-      } catch {}
+      } catch { /* ignore */ }
       await this._createPantrySession();
       await this._saveRemote(legacyData && typeof legacyData === "object" ? legacyData : this._initDoc());
       const cfg = localStorage.getItem("lifemapz-sync-config");
-      if (cfg) {
-        try {
-          const p = JSON.parse(cfg);
-          p.sessionId = this.sessionId;
-          p.enabled = true;
-          localStorage.setItem("lifemapz-sync-config", JSON.stringify(p));
-        } catch {}
-      }
-    } catch {}
+      if (cfg) { try { const p = JSON.parse(cfg); p.sessionId = this.sessionId; p.enabled = true; localStorage.setItem("lifemapz-sync-config", JSON.stringify(p)); } catch {} }
+      console.log("✅ Migration complete");
+    } catch (e) {
+      console.error("❌ Migration failed:", e);
+      throw e;
+    }
   }
 }
 
@@ -316,7 +410,7 @@ class LifeMapzApp {
     this.currentTaskTimeData = {};
     this.cloudSync = new CloudSyncService();
     this.firebaseSync = { enabled:false, unsub:null, docRef:null, writing:false, lastRemote:null };
-    this.syncEnabled = false;
+    this.syncEnabled = false; // Cloud Sync (Pantry/JSONBin)
     this.init();
   }
 
@@ -355,13 +449,11 @@ class LifeMapzApp {
       syncBtnLabel.textContent = "Cloud Sync";
     }
 
-    // Only change the SPECIFIC “Visual Horizons” titles you pointed out:
-    // 1) The first card with data-horizon="hours"
+    // Only change the SPECIFIC “Visual Horizons” titles:
     const hoursCardTitle = document.querySelector('.horizon-section[data-horizon="hours"] .section-header h4');
     if (hoursCardTitle && /visual\s+horizons/i.test(hoursCardTitle.textContent)) {
       hoursCardTitle.innerHTML = `<i class="fas fa-clock"></i> Hours`;
     }
-    // 2) Cascade bottom level data-level="hours"
     const cascadeHours = document.querySelector('.cascade-level[data-level="hours"] h4');
     if (cascadeHours && /visual\s+horizons/i.test(cascadeHours.textContent)) {
       cascadeHours.textContent = "Hours";
@@ -375,7 +467,6 @@ class LifeMapzApp {
         navigator.serviceWorker
           .register(`./sw.js?v=${APP_VERSION}`)
           .then((reg) => {
-            // When a new SW is installed while one is controlling the page: reload to get fresh assets
             reg.onupdatefound = () => {
               const sw = reg.installing;
               if (!sw) return;
@@ -401,9 +492,10 @@ class LifeMapzApp {
     // Reconnect quietly ONLY if previously enabled
     if (syncConfig && syncConfig.enabled && syncConfig.sessionId) {
       try {
+        console.log("🔄 Reconnecting to cloud sync with session:", syncConfig.sessionId);
         await this.enableCloudSync(syncConfig.sessionId, { quiet: true, reconnect: true });
       } catch (error) {
-        console.warn("Failed to reconnect cloud sync:", error);
+        console.error("❌ Failed to reconnect cloud sync:", error);
         this.disableCloudSync({ silent: true });
       }
     } else {
@@ -414,28 +506,46 @@ class LifeMapzApp {
   }
 
   async enableCloudSync(sessionId = null, opts = {}) {
-    const { quiet = false } = opts;
+    const { quiet = false, reconnect = false } = opts;
     try {
+      // Avoid double-writing: turn off Firebase account sync when Cloud Sync is enabled
+      this.disableFirebaseSync();
+
       this.syncEnabled = true;
       this.updateSyncUI();
       if (!quiet) this.showNotification("Setting up cloud sync...", "info");
 
       await this.cloudSync.enable(sessionId);
 
+      // Remote change listener
       this.cloudSync.onDataChange((remoteData) => {
+        console.log("🔄 Remote data change detected");
         if (this.shouldAcceptRemoteData(remoteData)) this.handleRemoteData(remoteData);
       });
 
+      // Initial sync
       const merged = await this.cloudSync.sync(this.data);
       if (merged) { this.data = merged; this.saveData(false); this.renderCurrentView(); }
 
       this.saveSyncConfig({ enabled: true, sessionId: this.cloudSync.sessionId });
+
+      // Optional: link to account so devices auto-join
+      if (AUTO_LINK_CLOUD && auth.currentUser && this.cloudSync.sessionId) {
+        await this._setAutoLinkState(true, this.cloudSync.sessionId);
+      }
+
       this.updateSyncUI();
-      if (!quiet) this.showNotification("Cloud sync enabled!", "success");
+      if (!quiet) this.showNotification(reconnect ? "Cloud sync reconnected!" : "Cloud sync enabled!", "success");
     } catch (error) {
-      console.error("Cloud sync enable failed:", error);
+      console.error("❌ Cloud sync enable failed:", error);
       if (!quiet) this.showNotification("Cloud sync unavailable. Using local storage.", "warning");
       this.disableCloudSync({ silent: quiet });
+      // Fallback to account sync if user is signed-in
+      const u = auth.currentUser;
+      if (u) {
+        console.log("🔄 Falling back to Firebase account sync");
+        this.enableFirebaseSync(u.uid);
+      }
     }
   }
 
@@ -448,34 +558,50 @@ class LifeMapzApp {
     this.saveSyncConfig({ enabled: false, sessionId: null });
     this.updateSyncUI();
 
-    // Only show toast if user actively turned it off
-    if (!silent && wasEnabled) {
-      this.showNotification("Cloud sync disabled", "info");
+    if (!silent && wasEnabled) this.showNotification("Cloud sync disabled", "info");
+
+    // Opt-out auto link so we don't rejoin unexpectedly
+    if (AUTO_LINK_CLOUD && auth.currentUser) {
+      this._setAutoLinkState(false, null);
     }
+
+    // If user is logged in, auto-fallback to account sync
+    const u = auth.currentUser;
+    if (u) this.enableFirebaseSync(u.uid);
   }
 
   handleRemoteData(remoteData) {
     if (this.shouldAcceptRemoteData(remoteData)) {
+      console.log("✅ Accepting remote data update");
       this.data = remoteData;
       this.saveData(false);
       this.renderCurrentView();
       this.showNotification("Changes synced from cloud", "info");
+    } else {
+      console.log("🛑 Local is newer; ignoring remote");
     }
   }
 
   shouldAcceptRemoteData(remoteData) {
-    if (!remoteData || !remoteData.lastSaved) return false;
-    if (!this.data.lastSaved) return true;
-    return new Date(remoteData.lastSaved) > new Date(this.data.lastSaved);
+    if (!remoteData || !remoteData.lastSaved) { console.log("❌ Invalid remote data"); return false; }
+    if (!this.data.lastSaved) { console.log("✅ No local ts; accept remote"); return true; }
+    const remoteIsNewer = new Date(remoteData.lastSaved) > new Date(this.data.lastSaved);
+    console.log(`🔍 Remote: ${remoteData.lastSaved}, Local: ${this.data.lastSaved}, accept=${remoteIsNewer}`);
+    return remoteIsNewer;
   }
 
   saveData(triggerSync = true) {
     this.data.lastSaved = new Date().toISOString();
     this.data.version = APP_VERSION;
     localStorage.setItem("lifemapz-data", JSON.stringify(this.data));
-if (this.firebaseSync?.enabled) { this._writeFirebase(); }
+    // Push to account sync (Firestore) if active
+    if (this.firebaseSync?.enabled) {
+      this._writeFirebase().catch(e => console.warn("FB write failed:", e));
+    }
+    // Push to Cloud Sync (Pantry/JSONBin) if active
     if (triggerSync && this.syncEnabled) {
-      this.cloudSync.sync(this.data).catch(err => console.warn("Cloud sync failed:", err));
+      console.log("🔄 Triggering cloud sync after data change");
+      this.cloudSync.sync(this.data).catch(err => console.warn("⚠️ Cloud sync failed:", err));
     }
   }
 
@@ -496,7 +622,8 @@ if (this.firebaseSync?.enabled) { this._writeFirebase(); }
     try {
       await this.enableCloudSync(code, { quiet: false });
       this.closeModal("sync-setup-modal");
-    } catch {
+    } catch (error) {
+      console.error("❌ Join sync session failed:", error);
       this.showNotification("Failed to join sync session", "error");
     }
   }
@@ -508,33 +635,53 @@ if (this.firebaseSync?.enabled) { this._writeFirebase(); }
     return c ? JSON.parse(c) : { enabled: false, sessionId: null };
   }
 
-  saveSyncConfig(config) {
-    localStorage.setItem("lifemapz-sync-config", JSON.stringify(config));
-  }
+  saveSyncConfig(config) { localStorage.setItem("lifemapz-sync-config", JSON.stringify(config)); }
 
   updateSyncUI() {
     const syncIndicator  = document.getElementById("sync-indicator");
-    const syncDot        = document.getElementById("sync-dot-desktop"); // desktop dot (span)
-    const syncDotMobile  = document.getElementById("sync-dot");         // mobile dot (span)
+    const syncDot        = document.getElementById("sync-dot-desktop");
+    const syncDotMobile  = document.getElementById("sync-dot");
     const syncStatus     = document.getElementById("sync-status");
     const syncToggle     = document.getElementById("sync-toggle");
 
-    if (syncDot && !syncDot.classList.contains("sync-dot-desktop")) {
-      syncDot.classList.add("sync-dot-desktop");
-    }
+    if (syncDot && !syncDot.classList.contains("sync-dot-desktop")) syncDot.classList.add("sync-dot-desktop");
 
-    if (this.syncEnabled) {
-      syncIndicator?.classList.add("syncing");
-      syncDot?.classList.add("syncing");
-      syncDotMobile?.classList.add("syncing");
-      syncToggle?.classList.add("syncing");
-      if (syncStatus) syncStatus.textContent = "🟢 Syncing with cloud";
-    } else {
-      syncIndicator?.classList.remove("syncing");
-      syncDot?.classList.remove("syncing");
-      syncDotMobile?.classList.remove("syncing");
-      syncToggle?.classList.remove("syncing");
-      if (syncStatus) syncStatus.textContent = "⚫ Sync disabled";
+    // Cloud Sync (Pantry/JSONBin)
+    const cloudOn = !!this.syncEnabled;
+    // Account Sync (Firestore)
+    const accountOn = !!(this.firebaseSync && this.firebaseSync.enabled);
+    const anySync = cloudOn || accountOn;
+
+    [syncIndicator, syncDot, syncDotMobile, syncToggle].forEach(el => {
+      if (!el) return;
+      el.classList.toggle("syncing", anySync);
+    });
+
+    if (syncStatus) {
+      if (cloudOn) syncStatus.textContent = "🟢 Syncing with cloud";
+      else if (accountOn) syncStatus.textContent = "🟢 Syncing with account";
+      else syncStatus.textContent = "⚫ Sync disabled";
+    }
+  }
+
+  /* -------- Auto-link helpers -------- */
+  async _setAutoLinkState(enabled, sessionId = null) {
+    try {
+      const u = auth.currentUser; if (!u) return;
+      await db.collection("users").doc(u.uid).collection("app").doc("lifemapz")
+        .set({ cloudAutoLink: !!enabled, cloudSessionId: sessionId || null }, { merge: true });
+      console.log("✅ Auto-link state set:", { enabled, sessionId });
+    } catch (e) { console.warn("Auto-link set failed:", e); }
+  }
+
+  async _getAutoLinkState(uid) {
+    try {
+      const snap = await db.collection("users").doc(uid).collection("app").doc("lifemapz").get();
+      const d = snap.exists ? (snap.data() || {}) : {};
+      return { cloudAutoLink: d.cloudAutoLink, cloudSessionId: d.cloudSessionId };
+    } catch (e) {
+      console.warn("Auto-link get failed:", e);
+      return { cloudAutoLink: undefined, cloudSessionId: undefined };
     }
   }
 
@@ -544,9 +691,7 @@ if (this.firebaseSync?.enabled) { this._writeFirebase(); }
     return saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   }
 
-  applyTheme() {
-    document.body.setAttribute("data-theme", this.currentTheme);
-  }
+  applyTheme() { document.body.setAttribute("data-theme", this.currentTheme); }
 
   toggleTheme() {
     this.currentTheme = this.currentTheme === "light" ? "dark" : "light";
@@ -562,19 +707,13 @@ if (this.firebaseSync?.enabled) { this._writeFirebase(); }
   }
 
   getDefaultData() {
-    return {
-      version: APP_VERSION,
-      tasks: [],
-      lastSaved: new Date().toISOString()
-    };
+    return { version: APP_VERSION, tasks: [], lastSaved: new Date().toISOString() };
   }
 
   setupSampleData() {
     if (this.data.tasks.length === 0) {
       const now = new Date();
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
+      const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
       this.data.tasks = [
         {
           id: "1",
@@ -630,68 +769,72 @@ if (this.firebaseSync?.enabled) { this._writeFirebase(); }
       this.saveData();
     }
   }
-/* -------- Firebase Account Sync (simple, per-user) -------- */
-enableFirebaseSync(uid) {
-  // If Cloud Sync (Pantry/JSONBin) is active, don’t double-sync
-  if (this.syncEnabled) return;
 
-  const docRef = db.collection("users").doc(uid).collection("app").doc("lifemapz");
-  this.firebaseSync.docRef = docRef;
-  this.firebaseSync.enabled = true;
+  /* -------- Firebase Account Sync (per-user) -------- */
+  enableFirebaseSync(uid) {
+    // If Cloud Sync (Pantry/JSONBin) is active, don’t double-sync
+    if (this.syncEnabled) return;
 
-  // 1) Initial reconcile: if remote is newer, pull; else push local
-  docRef.get().then((snap) => {
-    const remote = snap.exists ? snap.data() : null;
-    const localNewer =
-      this.data?.lastSaved &&
-      (!remote?.lastSaved || new Date(this.data.lastSaved) >= new Date(remote.lastSaved));
+    const docRef = db.collection("users").doc(uid).collection("app").doc("lifemapz");
+    this.firebaseSync.docRef = docRef;
+    this.firebaseSync.enabled = true;
 
-    if (!remote || localNewer) {
-      this._writeFirebase().catch((e) => console.warn("FB sync initial push failed:", e));
-    } else {
-      this.data = remote;
-      this.saveData(false);
-      this.renderCurrentView();
-      this.showNotification("Synced from your account", "info");
-    }
-  }).catch((e) => console.warn("FB sync initial get failed:", e));
+    // Initial reconcile: if remote is newer, pull; else push local
+    docRef.get().then((snap) => {
+      const remote = snap.exists ? snap.data() : null;
+      const localNewer =
+        this.data?.lastSaved &&
+        (!remote?.lastSaved || new Date(this.data.lastSaved) >= new Date(remote.lastSaved));
 
-  // 2) Realtime pull
-  this.firebaseSync.unsub = docRef.onSnapshot((snap) => {
-    if (!snap.exists) return;
-    if (this.firebaseSync.writing) return; // ignore our own writes
-    const remote = snap.data();
-    if (!remote?.lastSaved) return;
-    if (!this.data?.lastSaved || new Date(remote.lastSaved) > new Date(this.data.lastSaved)) {
-      this.data = remote;
-      this.saveData(false);
-      this.renderCurrentView();
-      this.showNotification("Changes synced from your account", "info");
-    }
-  });
-}
+      if (!remote || localNewer) {
+        this._writeFirebase().catch((e) => console.warn("FB sync initial push failed:", e));
+      } else {
+        this.data = remote;
+        this.saveData(false);
+        this.renderCurrentView();
+        this.showNotification("Synced from your account", "info");
+      }
+    }).catch((e) => console.warn("FB sync initial get failed:", e));
 
-disableFirebaseSync() {
-  if (this.firebaseSync?.unsub) {
-    try { this.firebaseSync.unsub(); } catch { /* noop */ }
+    // Realtime pull
+    this.firebaseSync.unsub = docRef.onSnapshot((snap) => {
+      if (!snap.exists) return;
+      if (this.firebaseSync.writing) return; // ignore our own writes
+      const remote = snap.data();
+      if (!remote?.lastSaved) return;
+      if (!this.data?.lastSaved || new Date(remote.lastSaved) > new Date(this.data.lastSaved)) {
+        this.data = remote;
+        this.saveData(false);
+        this.renderCurrentView();
+        this.showNotification("Changes synced from your account", "info");
+      }
+    });
+
+    this.updateSyncUI();
   }
-  this.firebaseSync = { enabled:false, unsub:null, docRef:null, writing:false, lastRemote:null };
-}
 
-async _writeFirebase() {
-  if (!this.firebaseSync?.enabled || !this.firebaseSync?.docRef) return;
-  this.firebaseSync.writing = true;
-  try {
-    await this.firebaseSync.docRef.set(this.data);
-    this.firebaseSync.lastRemote = this.data.lastSaved;
-  } finally {
-    this.firebaseSync.writing = false;
+  disableFirebaseSync() {
+    if (this.firebaseSync?.unsub) {
+      try { this.firebaseSync.unsub(); } catch { /* noop */ }
+    }
+    this.firebaseSync = { enabled:false, unsub:null, docRef:null, writing:false, lastRemote:null };
+    this.updateSyncUI();
   }
-}
+
+  async _writeFirebase() {
+    if (!this.firebaseSync?.enabled || !this.firebaseSync?.docRef) return;
+    this.firebaseSync.writing = true;
+    try {
+      await this.firebaseSync.docRef.set(this.data);
+      this.firebaseSync.lastRemote = this.data.lastSaved;
+    } finally {
+      this.firebaseSync.writing = false;
+    }
+  }
 
   /* -------- Auth wiring -------- */
   bindEvents() {
-    // Auth UI
+    // Auth UI elements
     const emailEl   = document.getElementById("email");
     const passEl    = document.getElementById("password");
     const signupBtn = document.getElementById("btn-signup");
@@ -712,38 +855,51 @@ async _writeFirebase() {
     // Prefill helper (dev)
     if (emailEl && !emailEl.value) emailEl.value = "bongjacib@gmail.com";
 
-    // Auth state
-auth.onAuthStateChanged(async (user) => {
-  if (user) {
-    if (authPanel) authPanel.style.display = "none";
-    if (userPanel) userPanel.style.display = "block";
-    if (whoami) whoami.textContent = `Signed in as ${user.email || user.displayName || user.uid}`;
+    // Auth state listener
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        if (authPanel) authPanel.style.display = "none";
+        if (userPanel) userPanel.style.display = "block";
+        if (whoami) whoami.textContent = `Signed in as ${user.email || user.displayName || user.uid}`;
 
-    // ⬇️ Add this:
-    this.enableFirebaseSync(user.uid);
+        // Bootstrap user doc (top-level)
+        try {
+          const ref = db.collection("users").doc(user.uid);
+          const snap = await ref.get();
+          if (!snap.exists) {
+            await ref.set({
+              email: user.email || null,
+              displayName: user.displayName || null,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }
+        } catch (e) {
+          console.warn("User bootstrap error:", e);
+        }
 
-    try {
-      const ref = db.collection("users").doc(user.uid);
-      const snap = await ref.get();
-      if (!snap.exists) {
-        await ref.set({
-          email: user.email || null,
-          displayName: user.displayName || null,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        // Start account sync (unless Cloud Sync is active)
+        this.enableFirebaseSync(user.uid);
+
+        // Auto-link Cloud Sync if preferred
+        if (AUTO_LINK_CLOUD && !this.syncEnabled) {
+          const { cloudAutoLink, cloudSessionId } = await this._getAutoLinkState(user.uid);
+          if (cloudSessionId && cloudAutoLink !== false) {
+            try {
+              await this.enableCloudSync(cloudSessionId, { quiet: true, reconnect: true });
+            } catch (e) {
+              console.warn("Auto-link Cloud Sync failed:", e);
+              this.enableFirebaseSync(user.uid);
+            }
+          }
+        }
+      } else {
+        if (authPanel) authPanel.style.display = "block";
+        if (userPanel) userPanel.style.display = "none";
+        if (whoami) whoami.textContent = "";
+        this.disableFirebaseSync();
       }
-    } catch (e) {
-      console.warn("User bootstrap error:", e);
-    }
-  } else {
-    if (authPanel) authPanel.style.display = "block";
-    if (userPanel) userPanel.style.display = "none";
-    if (whoami) whoami.textContent = "";
-
-    // ⬇️ And this:
-    this.disableFirebaseSync();
-  }
-});
+      this.updateSyncUI();
+    });
 
     // Email/password: Sign up
     signupBtn?.addEventListener("click", async () => {
@@ -769,39 +925,30 @@ auth.onAuthStateChanged(async (user) => {
       }
     });
 
-    // ---- Google Sign-In (mobile-safe + visible redirect result) ----
+    // Google Sign-In (mobile-safe)
     const googleProvider = new firebase.auth.GoogleAuthProvider();
-
-    function googleSignIn() {
+    const googleSignIn = () => {
       const isStandalone =
         window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
       const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-      // On mobile/PWA: always use redirect
-      if (isStandalone || isMobile) {
-        return auth.signInWithRedirect(googleProvider);
-      }
-
-      // Desktop: try popup; if blocked, fall back to redirect
+      if (isStandalone || isMobile) return auth.signInWithRedirect(googleProvider);
       return auth.signInWithPopup(googleProvider).catch((err) => {
         console.warn("Popup failed; falling back to redirect:", err && err.code);
         return auth.signInWithRedirect(googleProvider);
       });
-    }
+    };
 
-    // Wire button
-   googleBtn?.addEventListener('click', async (e) => {
-  e.preventDefault(); // <-- important on mobile if wrapped in a form
-  try { await googleSignIn(); }
-  catch (e) {
-    const msg = (e && (e.code || e.message)) || String(e);
-    const m = document.getElementById('auth-msg');
-    if (m) m.textContent = msg; else alert(msg);
-  }
-});
+    googleBtn?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try { await googleSignIn(); }
+      catch (e) {
+        const msg = (e && (e.code || e.message)) || String(e);
+        const m = document.getElementById('auth-msg');
+        if (m) m.textContent = msg; else alert(msg);
+      }
+    });
 
-
-    // 3) Complete the redirect flow EARLY and show any error in the banner
+    // Complete redirect flow
     auth.getRedirectResult()
       .then((result) => {
         if (result && result.user) {
@@ -847,11 +994,8 @@ auth.onAuthStateChanged(async (user) => {
   _handleSidebarViewClick(view) {
     // Only 'horizons' and 'cascade' are full-page views
     const targetViewEl = document.getElementById(`${view}-view`);
-    if (targetViewEl) {
-      this.switchView(view);
-      return;
-    }
-    // If it's one of the horizons (days/weeks/etc.), scroll the section inside Horizons view
+    if (targetViewEl) { this.switchView(view); return; }
+    // If it's one of the horizons (days/weeks/etc.), scroll within Horizons view
     const horizonIds = ["hours", "days", "weeks", "months", "years", "life"];
     if (horizonIds.includes(view)) {
       this.switchView("horizons");
