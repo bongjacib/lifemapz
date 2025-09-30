@@ -315,6 +315,7 @@ class LifeMapzApp {
     this.data = this.loadData();
     this.currentTaskTimeData = {};
     this.cloudSync = new CloudSyncService();
+    this.firebaseSync = { enabled:false, unsub:null, docRef:null, writing:false, lastRemote:null };
     this.syncEnabled = false;
     this.init();
   }
@@ -472,6 +473,7 @@ class LifeMapzApp {
     this.data.lastSaved = new Date().toISOString();
     this.data.version = APP_VERSION;
     localStorage.setItem("lifemapz-data", JSON.stringify(this.data));
+if (this.firebaseSync?.enabled) { this._writeFirebase(); }
     if (triggerSync && this.syncEnabled) {
       this.cloudSync.sync(this.data).catch(err => console.warn("Cloud sync failed:", err));
     }
@@ -628,6 +630,64 @@ class LifeMapzApp {
       this.saveData();
     }
   }
+/* -------- Firebase Account Sync (simple, per-user) -------- */
+enableFirebaseSync(uid) {
+  // If Cloud Sync (Pantry/JSONBin) is active, don’t double-sync
+  if (this.syncEnabled) return;
+
+  const docRef = db.collection("users").doc(uid).collection("app").doc("lifemapz");
+  this.firebaseSync.docRef = docRef;
+  this.firebaseSync.enabled = true;
+
+  // 1) Initial reconcile: if remote is newer, pull; else push local
+  docRef.get().then((snap) => {
+    const remote = snap.exists ? snap.data() : null;
+    const localNewer =
+      this.data?.lastSaved &&
+      (!remote?.lastSaved || new Date(this.data.lastSaved) >= new Date(remote.lastSaved));
+
+    if (!remote || localNewer) {
+      this._writeFirebase().catch((e) => console.warn("FB sync initial push failed:", e));
+    } else {
+      this.data = remote;
+      this.saveData(false);
+      this.renderCurrentView();
+      this.showNotification("Synced from your account", "info");
+    }
+  }).catch((e) => console.warn("FB sync initial get failed:", e));
+
+  // 2) Realtime pull
+  this.firebaseSync.unsub = docRef.onSnapshot((snap) => {
+    if (!snap.exists) return;
+    if (this.firebaseSync.writing) return; // ignore our own writes
+    const remote = snap.data();
+    if (!remote?.lastSaved) return;
+    if (!this.data?.lastSaved || new Date(remote.lastSaved) > new Date(this.data.lastSaved)) {
+      this.data = remote;
+      this.saveData(false);
+      this.renderCurrentView();
+      this.showNotification("Changes synced from your account", "info");
+    }
+  });
+}
+
+disableFirebaseSync() {
+  if (this.firebaseSync?.unsub) {
+    try { this.firebaseSync.unsub(); } catch { /* noop */ }
+  }
+  this.firebaseSync = { enabled:false, unsub:null, docRef:null, writing:false, lastRemote:null };
+}
+
+async _writeFirebase() {
+  if (!this.firebaseSync?.enabled || !this.firebaseSync?.docRef) return;
+  this.firebaseSync.writing = true;
+  try {
+    await this.firebaseSync.docRef.set(this.data);
+    this.firebaseSync.lastRemote = this.data.lastSaved;
+  } finally {
+    this.firebaseSync.writing = false;
+  }
+}
 
   /* -------- Auth wiring -------- */
   bindEvents() {
@@ -653,30 +713,37 @@ class LifeMapzApp {
     if (emailEl && !emailEl.value) emailEl.value = "bongjacib@gmail.com";
 
     // Auth state
-    auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        if (authPanel) authPanel.style.display = "none";
-        if (userPanel) userPanel.style.display = "block";
-        if (whoami) whoami.textContent = `Signed in as ${user.email || user.displayName || user.uid}`;
-        try {
-          const ref = db.collection("users").doc(user.uid);
-          const snap = await ref.get();
-          if (!snap.exists) {
-            await ref.set({
-              email: user.email || null,
-              displayName: user.displayName || null,
-              createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-          }
-        } catch (e) {
-          console.warn("User bootstrap error:", e);
-        }
-      } else {
-        if (authPanel) authPanel.style.display = "block";
-        if (userPanel) userPanel.style.display = "none";
-        if (whoami) whoami.textContent = "";
+auth.onAuthStateChanged(async (user) => {
+  if (user) {
+    if (authPanel) authPanel.style.display = "none";
+    if (userPanel) userPanel.style.display = "block";
+    if (whoami) whoami.textContent = `Signed in as ${user.email || user.displayName || user.uid}`;
+
+    // ⬇️ Add this:
+    this.enableFirebaseSync(user.uid);
+
+    try {
+      const ref = db.collection("users").doc(user.uid);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        await ref.set({
+          email: user.email || null,
+          displayName: user.displayName || null,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
       }
-    });
+    } catch (e) {
+      console.warn("User bootstrap error:", e);
+    }
+  } else {
+    if (authPanel) authPanel.style.display = "block";
+    if (userPanel) userPanel.style.display = "none";
+    if (whoami) whoami.textContent = "";
+
+    // ⬇️ And this:
+    this.disableFirebaseSync();
+  }
+});
 
     // Email/password: Sign up
     signupBtn?.addEventListener("click", async () => {
