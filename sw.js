@@ -1,5 +1,8 @@
 // LifeMapz - Service Worker v3.1.1
-// Strategy: versioned pre-cache + safe upgrades + network-first for HTML, cache-first for assets
+// Strategy: versioned pre-cache + safe upgrades
+// - Network-first for HTML/documents (so you always get fresh app shell)
+// - Cache-first for other GETs (with background update)
+// - ✨ DO NOT intercept Google/Firebase auth requests (fixes mobile sign-in)
 
 const CACHE_NAME = "lifemapz-v3.1.1";
 
@@ -35,9 +38,27 @@ self.addEventListener("activate", (event) => {
 // Fetch strategy:
 // - HTML/documents: network-first (fresh content), fall back to cache when offline
 // - Other GETs: cache-first, then network; also update cache in the background
+// - ⚠️ Never intercept Firebase/Google auth flows
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+
+  // 🚫 Do NOT intercept Firebase/Google auth traffic
+  const skipSW =
+    url.origin.includes("firebaseapp.com") ||
+    url.origin.includes("web.app") ||
+    url.origin.includes("gstatic.com") ||
+    url.origin.includes("googleapis.com") ||
+    url.origin.includes("googleusercontent.com") ||
+    url.origin.includes("accounts.google.com") ||
+    url.pathname.includes("/__/auth/");
+
+  if (skipSW) {
+    // Let the browser access the network directly so OAuth completes correctly
+    return; // no respondWith -> default network handling
+  }
 
   const isHTML =
     request.mode === "navigate" ||
@@ -45,31 +66,39 @@ self.addEventListener("fetch", (event) => {
     (request.headers.get("accept") || "").includes("text/html");
 
   if (isHTML) {
+    // Network-first for app shell pages
     event.respondWith(
-      fetch(request)
-        .then((resp) => {
+      (async () => {
+        try {
+          const resp = await fetch(request);
           const copy = resp.clone();
           caches.open(CACHE_NAME).then((c) => c.put(request, copy)).catch(() => {});
           return resp;
-        })
-        .catch(() => caches.match(request))
-        .then((resp) => resp || caches.match("./index.html"))
+        } catch {
+          // fallback to cache, then to cached index.html
+          const cached = await caches.match(request);
+          return cached || caches.match("./index.html");
+        }
+      })()
     );
     return;
   }
 
-  // Non-HTML: cache-first with background update (DO NOT ignore querystrings)
+  // Non-HTML: cache-first with background update (keep querystrings!)
   event.respondWith(
-    caches.match(request).then((cached) => {
+    (async () => {
+      const cached = await caches.match(request);
       const fetchPromise = fetch(request)
         .then((network) => {
           const copy = network.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(request, copy)).catch(() => {});
+          if (url.origin === self.location.origin) {
+            caches.open(CACHE_NAME).then((c) => c.put(request, copy)).catch(() => {});
+          }
           return network;
         })
         .catch(() => cached);
       return cached || fetchPromise;
-    })
+    })()
   );
 });
 

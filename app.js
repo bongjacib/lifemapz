@@ -24,6 +24,10 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();      // optional
 const storage = firebase.storage();   // optional
+// 🔒 Make sure Google sign-in survives redirects on mobile/PWA
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
+  console.warn('Failed to set persistence (fallback in effect):', e && e.code);
+});
 
 /* --------------------- HTTP helper --------------------- */
 const http = {
@@ -497,10 +501,15 @@ class LifeMapzApp {
 
   updateSyncUI() {
     const syncIndicator = document.getElementById("sync-indicator");
-    const syncDot = document.getElementById("sync-dot-desktop");
-    const syncDotMobile = document.getElementById("sync-dot");
+    const syncDot = document.getElementById("sync-dot-desktop");   // desktop dot (span)
+    const syncDotMobile = document.getElementById("sync-dot");      // mobile dot (span)
     const syncStatus = document.getElementById("sync-status");
     const syncToggle = document.getElementById("sync-toggle");
+
+    // ensure desktop dot has the class the CSS expects
+    if (syncDot && !syncDot.classList.contains("sync-dot-desktop")) {
+      syncDot.classList.add("sync-dot-desktop");
+    }
 
     if (this.syncEnabled) {
       syncIndicator?.classList.add("syncing");
@@ -702,10 +711,20 @@ class LifeMapzApp {
       try { await googleSignIn(); } catch (e) { showMsg(e.message || String(e)); }
     });
 
-    // Complete redirect flow (important on mobile)
-    auth.getRedirectResult().catch((e) => {
-      console.warn("Redirect result error:", e && e.code);
-    });
+// Complete redirect flow (important on mobile)
+auth.getRedirectResult()
+  .then((result) => {
+    if (result && result.user) {
+      // You ARE signed in now — this ensures the UI flips even if onAuthStateChanged fires early
+      console.log('✅ Redirect sign-in success:', result.user.email || result.user.uid);
+      // Optional: small toast so you can see it happened
+      try { app && app.showNotification('Signed in with Google', 'success'); } catch {}
+    }
+  })
+  .catch((e) => {
+    // Non-fatal; the listener below will still handle auth state flips
+    console.warn('Redirect result error:', e && e.code, e && e.message);
+  });
 
     // Log out
     logoutBtn?.addEventListener("click", async () => {
