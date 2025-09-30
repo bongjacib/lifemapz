@@ -3,9 +3,10 @@
    - Mobile-safe Google sign-in (popup -> redirect fallback + redirect completion)
    - Versioned SW registration + auto-reload on update
    - Runtime label fixes: VERKS->VIEWS, Grand(groc)->Dark Mode, Sync-Glashed->Cloud Sync
-   - Only the specific "Visual Horizons" titles changed to "Hours" (hours card + cascade bottom)
+   - Only specific "Visual Horizons" titles changed to "Hours" (hours card + cascade bottom)
    - Safe sidebar navigation for Days/Weeks/etc. (scrolls within Horizons view)
-   - CloudSyncService template-string fixes, version bump to 3.1.1
+   - CloudSyncService template-string fixes
+   - Cloud Sync: reconnects quietly only if previously enabled (no “disabled” toast on login)
 */
 
 const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.1";
@@ -24,9 +25,10 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();      // optional
 const storage = firebase.storage();   // optional
-// 🔒 Make sure Google sign-in survives redirects on mobile/PWA
+
+// 🔒 Keep auth across redirects/tabs (esp. mobile/PWA)
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
-  console.warn('Failed to set persistence (fallback in effect):', e && e.code);
+  console.warn("Auth persistence fallback:", e && (e.code || e.message));
 });
 
 /* --------------------- HTTP helper --------------------- */
@@ -74,8 +76,8 @@ const http = {
 /* --------------------- CloudSyncService --------------------- */
 class CloudSyncService {
   constructor() {
-    this.pantry = { base: "https://getpantry.cloud/apiv1", pantryId: null, basket: "lifemapz" };
-    this.jsonbin = { base: "https://api.jsonbin.io/v3", binId: null };
+    this.pantry  = { base: "https://getpantry.cloud/apiv1", pantryId: null, basket: "lifemapz" };
+    this.jsonbin = { base: "https://api.jsonbin.io/v3",      binId: null };
     this.backend = null;
     this.isEnabled = false;
     this.syncInterval = null;
@@ -149,8 +151,8 @@ class CloudSyncService {
   onDataChange(cb) { if (typeof cb === "function") this.dataChangeCallbacks.push(cb); }
 
   get sessionId() {
-    if (this.backend === "pantry" && this.pantry.pantryId) return `pantry:${this.pantry.pantryId}`;
-    if (this.backend === "jsonbin" && this.jsonbin.binId) return `jsonbin:${this.jsonbin.binId}`;
+    if (this.backend === "pantry"  && this.pantry.pantryId)  return `pantry:${this.pantry.pantryId}`;
+    if (this.backend === "jsonbin" && this.jsonbin.binId)    return `jsonbin:${this.jsonbin.binId}`;
     return null;
   }
 
@@ -176,6 +178,7 @@ class CloudSyncService {
       this._saveSession();
       return;
     }
+    // raw pantry id
     this.backend = "pantry";
     this.pantry.pantryId = code;
     this._saveSession();
@@ -332,7 +335,7 @@ class LifeMapzApp {
     setTimeout(() => this.showNotification(`LifeMapz v${APP_VERSION} is ready!`, "success"), 600);
   }
 
-  /* -------- Runtime UI text tweaks (safe idempotent) -------- */
+  /* -------- Runtime UI text tweaks (idempotent) -------- */
   _runtimeTextTweaks() {
     // VERKS -> VIEWS (sidebar section header)
     document.querySelectorAll(".sidebar-section h3").forEach(h3 => {
@@ -351,7 +354,7 @@ class LifeMapzApp {
       syncBtnLabel.textContent = "Cloud Sync";
     }
 
-    // Only change the specific “Visual Horizons” titles you pointed to:
+    // Only change the SPECIFIC “Visual Horizons” titles you pointed out:
     // 1) The first card with data-horizon="hours"
     const hoursCardTitle = document.querySelector('.horizon-section[data-horizon="hours"] .section-header h4');
     if (hoursCardTitle && /visual\s+horizons/i.test(hoursCardTitle.textContent)) {
@@ -371,7 +374,7 @@ class LifeMapzApp {
         navigator.serviceWorker
           .register(`./sw.js?v=${APP_VERSION}`)
           .then((reg) => {
-            // Update flow: reload when a new worker takes control
+            // When a new SW is installed while one is controlling the page: reload to get fresh assets
             reg.onupdatefound = () => {
               const sw = reg.installing;
               if (!sw) return;
@@ -385,8 +388,6 @@ class LifeMapzApp {
           .catch((err) => console.log("❌ SW registration failed:", err));
 
       window.addEventListener("load", register);
-
-      // If the SW takes control mid-session, reload once to pick up fresh assets
       navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload());
     }
   }
@@ -396,24 +397,27 @@ class LifeMapzApp {
     const syncConfig = this.loadSyncConfig();
     this.updateSyncUI();
 
-    try {
-      if (syncConfig.enabled && syncConfig.sessionId) {
-        this.showNotification("Reconnecting to cloud sync...", "info");
-        await this.enableCloudSync(syncConfig.sessionId);
-      } else {
-        await this.enableCloudSync();
+    // Reconnect quietly ONLY if previously enabled
+    if (syncConfig && syncConfig.enabled && syncConfig.sessionId) {
+      try {
+        await this.enableCloudSync(syncConfig.sessionId, { quiet: true, reconnect: true });
+      } catch (error) {
+        console.warn("Failed to reconnect cloud sync:", error);
+        this.disableCloudSync({ silent: true });
       }
-    } catch (error) {
-      console.warn("Failed to initialize cloud sync:", error);
-      this.disableCloudSync();
+    } else {
+      // Default state: not syncing, no toast
+      this.syncEnabled = false;
+      this.updateSyncUI();
     }
   }
 
-  async enableCloudSync(sessionId = null) {
+  async enableCloudSync(sessionId = null, opts = {}) {
+    const { quiet = false } = opts;
     try {
       this.syncEnabled = true;
       this.updateSyncUI();
-      this.showNotification("Setting up cloud sync...", "info");
+      if (!quiet) this.showNotification("Setting up cloud sync...", "info");
 
       await this.cloudSync.enable(sessionId);
 
@@ -426,20 +430,27 @@ class LifeMapzApp {
 
       this.saveSyncConfig({ enabled: true, sessionId: this.cloudSync.sessionId });
       this.updateSyncUI();
-      this.showNotification("Cloud sync enabled!", "success");
+      if (!quiet) this.showNotification("Cloud sync enabled!", "success");
     } catch (error) {
       console.error("Cloud sync enable failed:", error);
-      this.showNotification("Cloud sync unavailable. Using local storage.", "warning");
-      this.disableCloudSync();
+      if (!quiet) this.showNotification("Cloud sync unavailable. Using local storage.", "warning");
+      this.disableCloudSync({ silent: quiet });
     }
   }
 
-  disableCloudSync() {
+  disableCloudSync(opts = {}) {
+    const { silent = false } = opts;
+    const wasEnabled = this.syncEnabled;
+
     this.syncEnabled = false;
     this.cloudSync.disable();
     this.saveSyncConfig({ enabled: false, sessionId: null });
     this.updateSyncUI();
-    this.showNotification("Cloud sync disabled", "info");
+
+    // Only show toast if user actively turned it off
+    if (!silent && wasEnabled) {
+      this.showNotification("Cloud sync disabled", "info");
+    }
   }
 
   handleRemoteData(remoteData) {
@@ -470,7 +481,7 @@ class LifeMapzApp {
 
   async createSyncSession() {
     try {
-      await this.enableCloudSync();
+      await this.enableCloudSync(null, { quiet: false });
       this.closeModal("sync-setup-modal");
     } catch {
       this.showNotification("Failed to create sync session", "error");
@@ -481,7 +492,7 @@ class LifeMapzApp {
     const code = document.getElementById("sync-code-input")?.value.trim();
     if (!code) return this.showNotification("Please enter a sync code", "error");
     try {
-      await this.enableCloudSync(code);
+      await this.enableCloudSync(code, { quiet: false });
       this.closeModal("sync-setup-modal");
     } catch {
       this.showNotification("Failed to join sync session", "error");
@@ -500,13 +511,12 @@ class LifeMapzApp {
   }
 
   updateSyncUI() {
-    const syncIndicator = document.getElementById("sync-indicator");
-    const syncDot = document.getElementById("sync-dot-desktop");   // desktop dot (span)
-    const syncDotMobile = document.getElementById("sync-dot");      // mobile dot (span)
-    const syncStatus = document.getElementById("sync-status");
-    const syncToggle = document.getElementById("sync-toggle");
+    const syncIndicator  = document.getElementById("sync-indicator");
+    const syncDot        = document.getElementById("sync-dot-desktop"); // desktop dot (span)
+    const syncDotMobile  = document.getElementById("sync-dot");         // mobile dot (span)
+    const syncStatus     = document.getElementById("sync-status");
+    const syncToggle     = document.getElementById("sync-toggle");
 
-    // ensure desktop dot has the class the CSS expects
     if (syncDot && !syncDot.classList.contains("sync-dot-desktop")) {
       syncDot.classList.add("sync-dot-desktop");
     }
@@ -639,7 +649,7 @@ class LifeMapzApp {
       setTimeout(() => (msgEl.textContent = ""), 4000);
     };
 
-    // Prefill helper
+    // Prefill helper (dev)
     if (emailEl && !emailEl.value) emailEl.value = "bongjacib@gmail.com";
 
     // Auth state
@@ -692,64 +702,54 @@ class LifeMapzApp {
       }
     });
 
-// ---- Google Sign-In (mobile-safe + persistence + visible redirect result) ----
+    // ---- Google Sign-In (mobile-safe + visible redirect result) ----
+    const googleProvider = new firebase.auth.GoogleAuthProvider();
 
-// 1) Make sure the login survives redirects/tabs
-auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
-  const msg = (e && (e.code || e.message)) || String(e);
-  console.warn('persistence error:', msg);
-  const m = document.getElementById('auth-msg');
-  if (m) m.textContent = 'Auth persistence issue: ' + msg;
-});
+    function googleSignIn() {
+      const isStandalone =
+        window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-// 2) Provider + helper
-const googleProvider = new firebase.auth.GoogleAuthProvider();
+      // On mobile/PWA: always use redirect
+      if (isStandalone || isMobile) {
+        return auth.signInWithRedirect(googleProvider);
+      }
 
-function googleSignIn() {
-  const isStandalone =
-    window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-  // On mobile/PWA: always use redirect
-  if (isStandalone || isMobile) {
-    return auth.signInWithRedirect(googleProvider);
-  }
-
-  // Desktop: try popup; if blocked, fall back to redirect
-  return auth.signInWithPopup(googleProvider).catch((err) => {
-    console.warn('Popup failed; falling back to redirect:', err && err.code);
-    return auth.signInWithRedirect(googleProvider);
-  });
-}
-
-// Wire button
-googleBtn?.addEventListener('click', async () => {
-  try { await googleSignIn(); }
-  catch (e) {
-    const msg = (e && (e.code || e.message)) || String(e);
-    console.warn('googleSignIn error:', msg);
-    const m = document.getElementById('auth-msg');
-    if (m) m.textContent = msg;
-    else alert(msg);
-  }
-});
-
-// 3) Complete the redirect flow EARLY and show any error in the banner
-auth.getRedirectResult()
-  .then((result) => {
-    if (result && result.user) {
-      const whoami = document.getElementById('whoami');
-      if (whoami) whoami.textContent = `Signed in as ${result.user.email || result.user.displayName || result.user.uid}`;
-      const m = document.getElementById('auth-msg');
-      if (m) m.textContent = 'Signed in!';
+      // Desktop: try popup; if blocked, fall back to redirect
+      return auth.signInWithPopup(googleProvider).catch((err) => {
+        console.warn("Popup failed; falling back to redirect:", err && err.code);
+        return auth.signInWithRedirect(googleProvider);
+      });
     }
-  })
-  .catch((e) => {
-    const msg = (e && (e.code || e.message)) || String(e);
-    console.warn('getRedirectResult error:', msg);
-    const m = document.getElementById('auth-msg');
-    if (m) m.textContent = msg; else alert(msg);
-  });
+
+    // Wire button
+    googleBtn?.addEventListener("click", async () => {
+      try { await googleSignIn(); }
+      catch (e) {
+        const msg = (e && (e.code || e.message)) || String(e);
+        console.warn("googleSignIn error:", msg);
+        const m = document.getElementById("auth-msg");
+        if (m) m.textContent = msg;
+        else alert(msg);
+      }
+    });
+
+    // 3) Complete the redirect flow EARLY and show any error in the banner
+    auth.getRedirectResult()
+      .then((result) => {
+        if (result && result.user) {
+          const who = document.getElementById("whoami");
+          if (who) who.textContent = `Signed in as ${result.user.email || result.user.displayName || result.user.uid}`;
+          const m = document.getElementById("auth-msg");
+          if (m) m.textContent = "Signed in!";
+        }
+      })
+      .catch((e) => {
+        const msg = (e && (e.code || e.message)) || String(e);
+        console.warn("getRedirectResult error:", msg);
+        const m = document.getElementById("auth-msg");
+        if (m) m.textContent = msg; else alert(msg);
+      });
 
     // Log out
     logoutBtn?.addEventListener("click", async () => {
@@ -861,10 +861,7 @@ auth.getRedirectResult()
 
     this.currentView = viewName;
 
-    const titles = {
-      "horizons": "Visual Horizons",
-      "cascade": "Cascade Flow"
-    };
+    const titles = { "horizons": "Visual Horizons", "cascade": "Cascade Flow" };
     const titleEl = document.getElementById("current-view-title");
     if (titleEl) titleEl.textContent = titles[viewName] || viewName;
 
