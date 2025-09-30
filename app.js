@@ -692,38 +692,63 @@ class LifeMapzApp {
       }
     });
 
-    // Google Sign-In (mobile-safe)
-    const googleSignIn = () => {
-      const provider = new firebase.auth.GoogleAuthProvider();
-      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+// ---- Google Sign-In (mobile-safe + persistence + visible redirect result) ----
 
-      if (isStandalone || isMobile) {
-        return auth.signInWithRedirect(provider);
-      }
-      return auth.signInWithPopup(provider).catch((err) => {
-        console.warn("Popup failed; falling back to redirect:", err && err.code);
-        return auth.signInWithRedirect(provider);
-      });
-    };
+// 1) Make sure the login survives redirects/tabs
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
+  const msg = (e && (e.code || e.message)) || String(e);
+  console.warn('persistence error:', msg);
+  const m = document.getElementById('auth-msg');
+  if (m) m.textContent = 'Auth persistence issue: ' + msg;
+});
 
-    googleBtn?.addEventListener("click", async () => {
-      try { await googleSignIn(); } catch (e) { showMsg(e.message || String(e)); }
-    });
+// 2) Provider + helper
+const googleProvider = new firebase.auth.GoogleAuthProvider();
 
-// Complete redirect flow (important on mobile)
+function googleSignIn() {
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // On mobile/PWA: always use redirect
+  if (isStandalone || isMobile) {
+    return auth.signInWithRedirect(googleProvider);
+  }
+
+  // Desktop: try popup; if blocked, fall back to redirect
+  return auth.signInWithPopup(googleProvider).catch((err) => {
+    console.warn('Popup failed; falling back to redirect:', err && err.code);
+    return auth.signInWithRedirect(googleProvider);
+  });
+}
+
+// Wire button
+googleBtn?.addEventListener('click', async () => {
+  try { await googleSignIn(); }
+  catch (e) {
+    const msg = (e && (e.code || e.message)) || String(e);
+    console.warn('googleSignIn error:', msg);
+    const m = document.getElementById('auth-msg');
+    if (m) m.textContent = msg;
+    else alert(msg);
+  }
+});
+
+// 3) Complete the redirect flow EARLY and show any error in the banner
 auth.getRedirectResult()
   .then((result) => {
     if (result && result.user) {
-      // You ARE signed in now — this ensures the UI flips even if onAuthStateChanged fires early
-      console.log('✅ Redirect sign-in success:', result.user.email || result.user.uid);
-      // Optional: small toast so you can see it happened
-      try { app && app.showNotification('Signed in with Google', 'success'); } catch {}
+      const whoami = document.getElementById('whoami');
+      if (whoami) whoami.textContent = `Signed in as ${result.user.email || result.user.displayName || result.user.uid}`;
+      const m = document.getElementById('auth-msg');
+      if (m) m.textContent = 'Signed in!';
     }
   })
   .catch((e) => {
-    // Non-fatal; the listener below will still handle auth state flips
-    console.warn('Redirect result error:', e && e.code, e && e.message);
+    const msg = (e && (e.code || e.message)) || String(e);
+    console.warn('getRedirectResult error:', msg);
+    const m = document.getElementById('auth-msg');
+    if (m) m.textContent = msg; else alert(msg);
   });
 
     // Log out
