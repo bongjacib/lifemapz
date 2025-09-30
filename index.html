@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LifeMapz - Visualize Your Time Horizons</title>
+    <meta name="description" content="Advanced time management with cascading horizons">
+    <meta name="theme-color" content="#7c3aed">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css?v=3.1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Firebase SDKs (compat) — must be BEFORE your app.js -->
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-storage-compat.js"></script>
+</head>
+<body data-theme="light">
+    <!-- ✅ Simple Auth UI (required by app.js) -->
+    <section id="auth-panel" style="padding:12px;border-bottom:1px solid #eee;display:block;">
+        <h3 style="margin:6px 0;">Sign in</h3>
+        <input id="email" type="email" placeholder="Email" style="padding:8px;margin-right:6px;max-width:220px;">
+        <input id="password" type="password" placeholder="Password" style="padding:8px;max-width:160px;">
+        <button id="btn-signup" class="btn-primary" style="margin-left:6px;">Sign up</button>
+        <button id="btn-login" class="btn-secondary" style="margin-left:6px;">Log in</button>
+        <button id="btn-google" class="btn-secondary" style="margin-left:6px;">
+            <i class="fab fa-google"></i> Google
+        </button>
+        <p id="auth-msg" style="color:#b91c1c;margin:6px 0 0 0;"></p>
+    </section>
+
+    <section id="user-panel" style="padding:12px;border-bottom:1px solid #eee;display:none;">
+        <p id="whoami" style="margin:6px 0;">Signed in</p>
+        <button id="btn-logout" class="btn-secondary"><i class="fas fa-sign-out-alt"></i> Log out</button>
+    </section>
+    <!-- ✅ End Auth UI -->
+
+    <!-- Navigation Modal -->
+    <div id="nav-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="app.closeModal('nav-modal')">&times;</span>
+            <h3><i class="fas fa-bars"></i> Quick Navigation</h3>
+            <div class="modal-nav">
+                <button class="nav-btn" onclick="app.switchView('horizons')">
+                    <i class="fas fa-layer-group"></i> Visual Horizons
+                </button>
+                <button class="nav-btn" onclick="app.switchView('cascade')">
+                    <i class="fas fa-stream"></i> Cascade View
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Modal with Cascading Options -->
+    <div id="task-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="app.closeModal('task-modal')">&times;</span>
+            <h3><i class="fas fa-tasks"></i> <span id="task-modal-title">Add Task</span></h3>
+            <form id="task-form">
+                <div class="form-group">
+                    <label for="task-title">Title *</label>
+                    <input type="text" id="task-title" required placeholder="What needs to be done?">
+                </div>
+                <div class="form-group">
+                    <label for="task-description">Description</label>
+                    <textarea id="task-description" placeholder="Additional details..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="task-time-toggle">Schedule Time</label>
+                    <button type="button" class="time-toggle-btn" id="task-time-toggle" onclick="app.openTimeModal()">
+                        <i class="fas fa-clock"></i> Set Time & Repeat Options
+                    </button>
+                    <div id="time-summary" class="time-summary">No time set</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="task-horizon">Time Horizon *</label>
+                    <select id="task-horizon" required onchange="app.updateCascadeOptions()">
+                        <option value="">Select a horizon...</option>
+                        <option value="hours">Visual Horizons</option>
+                        <option value="days">Daily Goals</option>
+                        <option value="weeks">Weekly Goals</option>
+                        <option value="months">Monthly Goals</option>
+                        <option value="years">Yearly Goals</option>
+                        <option value="life">Life Goals</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="cascade-group">
+                    <label>Cascade to:</label>
+                    <div class="cascade-options">
+                        <label><input type="checkbox" name="cascade" value="days"> Daily Goals</label>
+                        <label><input type="checkbox" name="cascade" value="weeks"> Weekly Goals</label>
+                        <label><input type="checkbox" name="cascade" value="months"> Monthly Goals</label>
+                        <label><input type="checkbox" name="cascade" value="years"> Yearly Goals</label>
+                        <label><input type="checkbox" name="cascade" value="life"> Life Goals</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="task-priority">Priority</label>
+                    <select id="task-priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+
+                <input type="hidden" id="edit-task-id">
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="app.closeModal('task-modal')">Cancel</button>
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-save"></i> <span id="task-submit-text">Add Task</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Enhanced Time Selection Modal -->
+    <div id="time-modal" class="modal">
+        <div class="modal-content time-modal-content">
+            <div class="time-modal-header">
+                <span class="close" onclick="app.closeModal('time-modal')">&times;</span>
+                <h3 id="time-modal-title">Set Time & Repeat</h3>
+            </div>
+
+            <div class="time-modal-body">
+                <div class="date-display-section">
+                    <h4 id="selected-date-display">Today</h4>
+                </div>
+
+                <div class="date-picker-container">
+                    <label for="task-date">Select Date</label>
+                    <input type="date" id="task-date" class="date-picker-input">
+                </div>
+
+                <div class="time-range-section">
+                    <div class="time-input-group">
+                        <label>Time Range</label>
+                        <div class="time-inputs">
+                            <div class="time-input">
+                                <input type="time" id="task-start-time" value="09:00">
+                            </div>
+                            <span class="time-separator">to</span>
+                            <div class="time-input">
+                                <input type="time" id="task-end-time" value="10:00">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="time-action-buttons">
+                    <button class="time-action-btn" onclick="app.showRescheduleOptions()">
+                        <i class="fas fa-calendar-alt"></i> Reschedule
+                    </button>
+                    <button class="time-action-btn" onclick="app.toggleRepeatOptions()">
+                        <i class="fas fa-redo"></i> Repeat
+                    </button>
+                    <button class="time-action-btn danger" onclick="app.removeDateTime()">
+                        <i class="fas fa-times"></i> Remove date and time
+                    </button>
+                </div>
+
+                <div class="repeat-section" id="repeat-section">
+                    <h4>Repeat Options</h4>
+                    <div class="repeat-options">
+                        <button class="repeat-option" data-repeat="daily">Daily</button>
+                        <button class="repeat-option" data-repeat="weekly">Weekly</button>
+                        <button class="repeat-option" data-repeat="monthly">Monthly</button>
+                        <button class="repeat-option" data-repeat="yearly">Yearly</button>
+                        <button class="repeat-option active" data-repeat="none">Do not repeat</button>
+                    </div>
+
+                    <div class="weekday-options" id="weekday-options" style="display: none;">
+                        <h4>Repeat on Days</h4>
+                        <div class="weekday-buttons">
+                            <button class="weekday-btn" data-day="monday">Mon</button>
+                            <button class="weekday-btn" data-day="tuesday">Tue</button>
+                            <button class="weekday-btn" data-day="wednesday">Wed</button>
+                            <button class="weekday-btn" data-day="thursday">Thu</button>
+                            <button class="weekday-btn" data-day="friday">Fri</button>
+                            <button class="weekday-btn" data-day="saturday">Sat</button>
+                            <button class="weekday-btn" data-day="sunday">Sun</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="upcoming-dates">
+                    <h4>Upcoming Occurrences</h4>
+                    <div class="upcoming-list">
+                        <div class="upcoming-item">
+                            <strong>Today</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="time-modal-actions">
+                <button class="btn-secondary" onclick="app.closeModal('time-modal')">Cancel</button>
+                <button class="btn-primary" onclick="app.saveTimeSettings()">Save Time Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cloud Sync Setup Modal -->
+    <div id="sync-setup-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="app.closeModal('sync-setup-modal')">&times;</span>
+            <h3><i class="fas fa-cloud"></i> Enable Cloud Sync</h3>
+            <div class="sync-setup-content">
+                <p>Sync your tasks across all devices using cloud storage.</p>
+
+                <div class="sync-option">
+                    <h4>Option 1: Create New Sync Session</h4>
+                    <p>Start a new sync session for your devices.</p>
+                    <button class="btn-primary" onclick="app.createSyncSession()">
+                        <i class="fas fa-cloud"></i> Create New Sync
+                    </button>
+                </div>
+
+                <div class="sync-option">
+                    <h4>Option 2: Join Existing Session</h4>
+                    <p>Join an existing sync session with a code.</p>
+                    <div class="sync-code-section">
+                        <input type="text" id="sync-code-input" placeholder="Enter sync code" class="sync-code-input">
+                        <button class="btn-secondary" onclick="app.joinSyncSession()">Join Session</button>
+                    </div>
+                </div>
+
+                <div class="sync-info">
+                    <h4>How it works:</h4>
+                    <ul>
+                        <li>✅ Changes sync automatically between devices</li>
+                        <li>✅ Works offline with automatic re-sync</li>
+                        <li>✅ Your data is private and secure</li>
+                        <li>✅ No account required</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Mobile Header -->
+        <header class="mobile-header">
+            <button class="mobile-menu-btn" onclick="app.toggleMobileMenu()">
+                <i class="fas fa-bars"></i>
+            </button>
+            <h1 class="mobile-title">LifeMapz</h1>
+            <div class="mobile-header-actions">
+                <button class="sync-status-mobile" id="sync-status-mobile" onclick="app.showSyncModal()" title="Sync Status">
+                    <i class="fas fa-cloud"></i>
+                    <span class="sync-dot" id="sync-dot"></span>
+                </button>
+                <button class="mobile-add-btn" onclick="app.openTaskModal()">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <nav class="sidebar" id="main-sidebar">
+            <div class="sidebar-header">
+                <h1><i class="fas fa-map"></i> LifeMapz</h1>
+                <div class="sidebar-subtitle">Visual Horizons</div>
+            </div>
+
+            <!-- GOALS SECTION -->
+            <div class="sidebar-section">
+                <div class="sidebar-item active" data-view="horizons">
+                    <i class="fas fa-clock"></i>
+                    <span>Visual Horizons</span>
+                </div>
+                <div class="sidebar-item" data-view="days">
+                    <i class="fas fa-calendar-day"></i>
+                    <span>Daily Goals</span>
+                </div>
+                <div class="sidebar-item" data-view="weeks">
+                    <i class="fas fa-calendar-week"></i>
+                    <span>Weekly Goals</span>
+                </div>
+                <div class="sidebar-item" data-view="months">
+                    <i class="fas fa-calendar-alt"></i>
+                    <span>Monthly Goals</span>
+                </div>
+                <div class="sidebar-item" data-view="years">
+                    <i class="fas fa-calendar-star"></i>
+                    <span>Yearly Goals</span>
+                </div>
+                <div class="sidebar-item" data-view="life">
+                    <i class="fas fa-infinity"></i>
+                    <span>Life Goals</span>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>VERKS</h3>
+                <div class="sidebar-item" data-view="cascade">
+                    <i class="fas fa-stream"></i>
+                    <span>Cascade View</span>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="theme-toggle" onclick="app.toggleTheme()">
+                    <i class="fas fa-moon"></i>
+                    <span>Grand (groc)</span>
+                </button>
+                <div class="sync-section">
+                    <button class="sync-toggle" id="sync-toggle" onclick="app.showSyncModal()">
+                        <i class="fas fa-cloud"></i>
+                        <span>Sync-Glashed</span>
+                    </button>
+                    <div class="sync-status" id="sync-status">
+                        Sync disabled
+                    </div>
+                </div>
+                <div class="data-management-section">
+                    <button class="data-management-btn" onclick="app.showDataModal()">
+                        <i class="fas fa-database"></i>
+                        <span>Data Management</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="content-header">
+                <div class="header-left">
+                    <h2 id="current-view-title">Visual Horizons</h2>
+                    <div class="date-display" id="current-date"></div>
+                </div>
+                <div class="header-actions">
+                    <button class="header-btn sync-indicator" id="sync-indicator" onclick="app.showSyncModal()" title="Sync Status">
+                        <i class="fas fa-cloud"></i>
+                        <span class="sync-dot" id="sync-dot-desktop"></span>
+                    </button>
+                    <button class="header-btn" onclick="app.openTaskModal()" title="Add Task (Ctrl+N)">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button class="header-btn" onclick="app.exportData()" title="Export Data">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Visual Horizons View -->
+            <div id="horizons-view" class="view active">
+                <div class="cascading-horizons">
+                    <section class="horizon-section" data-horizon="hours">
+                        <div class="section-header">
+                            <h4><i class="fas fa-clock"></i> Visual Horizons</h4>
+                            <button class="section-add-btn" onclick="app.addToHorizon('hours')">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="tasks-list" id="hours-tasks"></div>
+                    </section>
+
+                    <section class="horizon-section" data-horizon="days">
+                        <div class="section-header">
+                            <h4><i class="fas fa-calendar-day"></i> Daily Goals</h4>
+                            <button class="section-add-btn" onclick="app.addToHorizon('days')">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="tasks-list" id="days-tasks"></div>
+                    </section>
+
+                    <section class="horizon-section" data-horizon="weeks">
+                        <div class="section-header">
+                            <h4><i class="fas fa-calendar-week"></i> Weekly Goals</h4>
+                            <button class="section-add-btn" onclick="app.addToHorizon('weeks')">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="tasks-list" id="weeks-tasks"></div>
+                    </section>
+
+                    <section class="horizon-section" data-horizon="months">
+                        <div class="section-header">
+                            <h4><i class="fas fa-calendar-alt"></i> Monthly Goals</h4>
+                            <button class="section-add-btn" onclick="app.addToHorizon('months')">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="tasks-list" id="months-tasks"></div>
+                    </section>
+
+                    <section class="horizon-section" data-horizon="years">
+                        <div class="section-header">
+                            <h4><i class="fas fa-calendar-star"></i> Yearly Goals</h4>
+                            <button class="section-add-btn" onclick="app.addToHorizon('years')">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="tasks-list" id="years-tasks"></div>
+                    </section>
+
+                    <section class="horizon-section" data-horizon="life">
+                        <div class="section-header">
+                            <h4><i class="fas fa-infinity"></i> Life Goals</h4>
+                            <button class="section-add-btn" onclick="app.addToHorizon('life')">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="tasks-list" id="life-tasks"></div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- Cascade View -->
+            <div id="cascade-view" class="view">
+                <div class="cascade-visualization">
+                    <h3>Task Cascade Flow</h3>
+                    <div class="cascade-flow">
+                        <div class="cascade-level" data-level="life">
+                            <h4>Life Goals</h4>
+                            <div class="cascade-tasks" id="cascade-life"></div>
+                        </div>
+                        <div class="cascade-arrow">↓</div>
+                        <div class="cascade-level" data-level="years">
+                            <h4>Yearly Goals</h4>
+                            <div class="cascade-tasks" id="cascade-years"></div>
+                        </div>
+                        <div class="cascade-arrow">↓</div>
+                        <div class="cascade-level" data-level="months">
+                            <h4>Monthly Goals</h4>
+                            <div class="cascade-tasks" id="cascade-months"></div>
+                        </div>
+                        <div class="cascade-arrow">↓</div>
+                        <div class="cascade-level" data-level="weeks">
+                            <h4>Weekly Goals</h4>
+                            <div class="cascade-tasks" id="cascade-weeks"></div>
+                        </div>
+                        <div class="cascade-arrow">↓</div>
+                        <div class="cascade-level" data-level="days">
+                            <h4>Daily Goals</h4>
+                            <div class="cascade-tasks" id="cascade-days"></div>
+                        </div>
+                        <div class="cascade-arrow">↓</div>
+                        <div class="cascade-level" data-level="hours">
+                            <h4>Visual Horizons</h4>
+                            <div class="cascade-tasks" id="cascade-hours"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Axios + your app code (app.js must come AFTER Firebase scripts) -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="app.js?v=3.1.0"></script>
+
+    <!-- (Optional) Register service worker for PWA -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(() => {});
+        });
+      }
+    </script>
+</body>
+</html>
