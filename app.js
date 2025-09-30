@@ -723,16 +723,16 @@ class LifeMapzApp {
     }
 
     // Wire button
-    googleBtn?.addEventListener("click", async () => {
-      try { await googleSignIn(); }
-      catch (e) {
-        const msg = (e && (e.code || e.message)) || String(e);
-        console.warn("googleSignIn error:", msg);
-        const m = document.getElementById("auth-msg");
-        if (m) m.textContent = msg;
-        else alert(msg);
-      }
-    });
+   googleBtn?.addEventListener('click', async (e) => {
+  e.preventDefault(); // <-- important on mobile if wrapped in a form
+  try { await googleSignIn(); }
+  catch (e) {
+    const msg = (e && (e.code || e.message)) || String(e);
+    const m = document.getElementById('auth-msg');
+    if (m) m.textContent = msg; else alert(msg);
+  }
+});
+
 
     // 3) Complete the redirect flow EARLY and show any error in the banner
     auth.getRedirectResult()
