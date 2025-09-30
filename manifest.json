@@ -2,7 +2,7 @@
   "name": "LifeMapz - Visual Time Horizons",
   "short_name": "LifeMapz",
   "description": "Visual time management with cascading goals and intelligent task scheduling",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
