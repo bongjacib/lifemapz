@@ -8,10 +8,10 @@
   <meta name="theme-color" content="#7c3aed"/>
 
   <!-- Build/version (bump once per release) -->
-  <script>window.LIFEMAPZ_VERSION = "3.1.1";</script>
+  <script>window.LIFEMAPZ_VERSION = "3.1.3";</script>
 
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=3.1.1">
+  <link rel="stylesheet" href="styles.css?v=3.1.3">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
   <!-- Firebase SDKs (compat) — must be BEFORE your app.js -->
@@ -33,7 +33,6 @@
       <i class="fab fa-google"></i> Google
     </button>
     <p id="auth-msg" style="color:#b91c1c;margin:6px 0 0 0;"></p>
-
   </section>
 
   <section id="user-panel" style="padding:12px;border-bottom:1px solid #eee;display:none;">
@@ -85,7 +84,7 @@
           <label for="task-horizon">Time Horizon *</label>
           <select id="task-horizon" required onchange="app.updateCascadeOptions()">
             <option value="">Select a horizon...</option>
-            <option value="hours">Visual Horizons</option>
+            <option value="hours">Hours</option>
             <option value="days">Daily Goals</option>
             <option value="weeks">Weekly Goals</option>
             <option value="months">Monthly Goals</option>
@@ -222,7 +221,7 @@
         <div class="sync-option">
           <h4>Option 1: Create New Sync Session</h4>
           <p>Start a new sync session for your devices.</p>
-          <button class="btn-primary" onclick="app.createSyncSession()">
+          <button class="btn-primary" id="create-sync-btn">
             <i class="fas fa-cloud"></i> Create New Sync
           </button>
         </div>
@@ -231,8 +230,8 @@
           <h4>Option 2: Join Existing Session</h4>
           <p>Join an existing sync session with a code.</p>
           <div class="sync-code-section">
-            <input type="text" id="sync-code-input" placeholder="Enter sync code" class="sync-code-input">
-            <button class="btn-secondary" onclick="app.joinSyncSession()">Join Session</button>
+            <input type="text" id="sync-code-input" placeholder="Enter sync code (pantry:... or jsonbin:...)" class="sync-code-input">
+            <button class="btn-secondary" id="join-sync-btn">Join Session</button>
           </div>
         </div>
 
@@ -243,6 +242,52 @@
             <li>✅ Works offline with automatic re-sync</li>
             <li>✅ Your data is private and secure</li>
             <li>✅ No account required</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Management Modal -->
+  <div id="data-modal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="app.closeModal('data-modal')">&times;</span>
+      <h3><i class="fas fa-database"></i> Data Management</h3>
+      <div class="data-management-content">
+        <div class="data-option">
+          <h4>Export Data</h4>
+          <p>Download a backup of all your tasks and settings.</p>
+          <button class="btn-primary" onclick="app.exportData()">
+            <i class="fas fa-download"></i> Export Backup
+          </button>
+        </div>
+
+        <div class="data-option">
+          <h4>Import Data</h4>
+          <p>Restore from a previously exported backup file.</p>
+          <div class="import-section">
+            <input type="file" id="import-file" accept=".json" class="file-input">
+            <label for="import-file" class="btn-secondary">
+              <i class="fas fa-upload"></i> Choose Backup File
+            </label>
+          </div>
+        </div>
+
+        <div class="data-option danger-zone">
+          <h4><i class="fas fa-exclamation-triangle"></i> Danger Zone</h4>
+          <p>Permanently delete all your data. This cannot be undone!</p>
+          <button class="btn-danger" onclick="app.clearAllData()">
+            <i class="fas fa-trash"></i> Clear All Data
+          </button>
+        </div>
+
+        <div class="data-info">
+          <h4>About Your Data:</h4>
+          <ul>
+            <li>✅ Your data is stored locally in your browser</li>
+            <li>✅ Cloud Sync stores encrypted copies in the cloud</li>
+            <li>✅ Regular backups are recommended</li>
+            <li>✅ You own your data - export anytime</li>
           </ul>
         </div>
       </div>
@@ -303,7 +348,7 @@
       </div>
 
       <div class="sidebar-section">
-        <h3>VERKS</h3>
+        <h3>VIEWS</h3>
         <div class="sidebar-item" data-view="cascade">
           <i class="fas fa-stream"></i>
           <span>Cascade View</span>
@@ -313,12 +358,13 @@
       <div class="sidebar-footer">
         <button class="theme-toggle" onclick="app.toggleTheme()">
           <i class="fas fa-moon"></i>
-          <span>Grand (groc)</span>
+          <span>Dark Mode</span>
         </button>
         <div class="sync-section">
           <button class="sync-toggle" id="sync-toggle" onclick="app.showSyncModal()">
             <i class="fas fa-cloud"></i>
-            <span>Sync-Glashed</span>
+            <span>Cloud Sync</span>
+            <span class="sync-dot-desktop" id="sync-dot-desktop"></span>
           </button>
           <div class="sync-status" id="sync-status">Sync disabled</div>
         </div>
@@ -341,13 +387,13 @@
         <div class="header-actions">
           <button class="header-btn sync-indicator" id="sync-indicator" onclick="app.showSyncModal()" title="Sync Status">
             <i class="fas fa-cloud"></i>
-            <span class="sync-dot" id="sync-dot-desktop"></span>
+            <span class="sync-dot" id="sync-dot-desktop-header"></span>
           </button>
           <button class="header-btn" onclick="app.openTaskModal()" title="Add Task (Ctrl+N)">
             <i class="fas fa-plus"></i>
           </button>
-          <button class="header-btn" onclick="app.exportData()" title="Export Data">
-            <i class="fas fa-download"></i>
+          <button class="header-btn" onclick="app.showDataModal()" title="Data Management">
+            <i class="fas fa-database"></i>
           </button>
         </div>
       </header>
@@ -357,7 +403,7 @@
         <div class="cascading-horizons">
           <section class="horizon-section" data-horizon="hours">
             <div class="section-header">
-              <h4><i class="fas fa-clock"></i> Visual Horizons</h4>
+              <h4><i class="fas fa-clock"></i> Hours</h4>
               <button class="section-add-btn" onclick="app.addToHorizon('hours')">
                 <i class="fas fa-plus"></i>
               </button>
@@ -448,7 +494,7 @@
             </div>
             <div class="cascade-arrow">↓</div>
             <div class="cascade-level" data-level="hours">
-              <h4>Visual Horizons</h4>
+              <h4>Hours</h4>
               <div class="cascade-tasks" id="cascade-hours"></div>
             </div>
           </div>
@@ -459,6 +505,6 @@
 
   <!-- Axios + your app code (app.js must come AFTER Firebase scripts) -->
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-  <script src="app.js?v=3.1.1"></script>
+  <script src="app.js?v=3.1.3"></script>
 </body>
 </html>

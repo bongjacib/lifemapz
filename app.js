@@ -5,6 +5,7 @@
    - Stronger error handling/logging across sync paths
    - AUTO_LINK_CLOUD: persist/recover session under users/{uid}/app/lifemapz with opt-out
    - Status badge reflects Cloud vs Account sync
+   - Added missing modal methods for sync and data management
 */
 
 const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.3";
@@ -449,7 +450,7 @@ class LifeMapzApp {
       syncBtnLabel.textContent = "Cloud Sync";
     }
 
-    // Only change the SPECIFIC “Visual Horizons” titles:
+    // Only change the SPECIFIC "Visual Horizons" titles:
     const hoursCardTitle = document.querySelector('.horizon-section[data-horizon="hours"] .section-header h4');
     if (hoursCardTitle && /visual\s+horizons/i.test(hoursCardTitle.textContent)) {
       hoursCardTitle.innerHTML = `<i class="fas fa-clock"></i> Hours`;
@@ -605,7 +606,10 @@ class LifeMapzApp {
     }
   }
 
-  showSyncModal() { this.openModal("sync-setup-modal"); }
+  /* -------- Sync Modal Methods -------- */
+  showSyncModal() { 
+    this.openModal("sync-setup-modal"); 
+  }
 
   async createSyncSession() {
     try {
@@ -628,7 +632,9 @@ class LifeMapzApp {
     }
   }
 
-  showDataModal() { this.openModal("data-modal"); }
+  showDataModal() { 
+    this.openModal("data-modal"); 
+  }
 
   loadSyncConfig() {
     const c = localStorage.getItem("lifemapz-sync-config");
@@ -772,7 +778,7 @@ class LifeMapzApp {
 
   /* -------- Firebase Account Sync (per-user) -------- */
   enableFirebaseSync(uid) {
-    // If Cloud Sync (Pantry/JSONBin) is active, don’t double-sync
+    // If Cloud Sync (Pantry/JSONBin) is active, don't double-sync
     if (this.syncEnabled) return;
 
     const docRef = db.collection("users").doc(uid).collection("app").doc("lifemapz");
@@ -973,6 +979,10 @@ class LifeMapzApp {
 
     // App-wide events
     document.getElementById("task-form")?.addEventListener("submit", (e) => { e.preventDefault(); this.saveTask(); });
+
+    // Sync modal button wiring
+    document.getElementById("create-sync-btn")?.addEventListener("click", () => this.createSyncSession());
+    document.getElementById("join-sync-btn")?.addEventListener("click", () => this.joinSyncSession());
 
     document.addEventListener("click", (e) => {
       const item = e.target.closest(".sidebar-item[data-view]");
