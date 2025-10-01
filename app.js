@@ -6,6 +6,8 @@
    - AUTO_LINK_CLOUD: persist/recover session under users/{uid}/app/lifemapz with opt-out
    - Status badge reflects Cloud vs Account sync
    - Added missing modal methods for sync and data management
+   - ✅ Hours view now shows *today-only* items (no past spillover)
+   - ✅ Added Calendar view (read-only month grid) under Views > Calendar
 */
 
 const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.3";
@@ -412,6 +414,7 @@ class LifeMapzApp {
     this.cloudSync = new CloudSyncService();
     this.firebaseSync = { enabled:false, unsub:null, docRef:null, writing:false, lastRemote:null };
     this.syncEnabled = false; // Cloud Sync (Pantry/JSONBin)
+    this.calendar = { current: new Date() }; // state for Calendar view
     this.init();
   }
 
@@ -604,6 +607,8 @@ class LifeMapzApp {
       console.log("🔄 Triggering cloud sync after data change");
       this.cloudSync.sync(this.data).catch(err => console.warn("⚠️ Cloud sync failed:", err));
     }
+    // Always re-render (affects hours filtering & calendar)
+    this.renderCurrentView();
   }
 
   /* -------- Sync Modal Methods -------- */
@@ -999,10 +1004,13 @@ class LifeMapzApp {
     });
 
     this.setupTimeModalEvents();
+
+    // Calendar nav (if Calendar view is present)
+    this._wireCalendarNav();
   }
 
   _handleSidebarViewClick(view) {
-    // Only 'horizons' and 'cascade' are full-page views
+    // Only 'horizons', 'cascade', 'calendar' are full-page views
     const targetViewEl = document.getElementById(`${view}-view`);
     if (targetViewEl) { this.switchView(view); return; }
     // If it's one of the horizons (days/weeks/etc.), scroll within Horizons view
@@ -1082,7 +1090,7 @@ class LifeMapzApp {
 
     this.currentView = viewName;
 
-    const titles = { "horizons": "Visual Horizons", "cascade": "Cascade Flow" };
+    const titles = { "horizons": "Visual Horizons", "cascade": "Cascade Flow", "calendar": "Calendar" };
     const titleEl = document.getElementById("current-view-title");
     if (titleEl) titleEl.textContent = titles[viewName] || viewName;
 
@@ -1098,13 +1106,31 @@ class LifeMapzApp {
   _isInCurrentMonth(d){ const t=new Date(); return d.getFullYear()===t.getFullYear() && d.getMonth()===t.getMonth(); }
   _isInCurrentYear(d){ const t=new Date(); return d.getFullYear()===t.getFullYear(); }
   _taskDate(task){ const ds=task?.timeSettings?.date; if(!ds)return null; const d=new Date(ds); return isNaN(d)?null:d; }
+  _todayKey(){ return this.toInputDate(new Date()); }
+  _dateKey(d){ return this.toInputDate(d); }
 
   _getTasksForHorizon(horizon) {
     const tasks = [];
+    const todayKey = this._todayKey();
+
     for (const task of this.data.tasks) {
       if (task.completed) continue;
-      if (task.horizon === horizon) { tasks.push(task); continue; }
-      if (task.cascadesTo && task.cascadesTo.includes(horizon)) tasks.push(task);
+
+      // Core membership: direct horizon or cascaded to it
+      const belongs =
+        task.horizon === horizon ||
+        (task.cascadesTo && task.cascadesTo.includes(horizon));
+
+      if (!belongs) continue;
+
+      // ✅ Special rule: "hours" should show *today-only*
+      if (horizon === "hours") {
+        const d = task?.timeSettings?.date || null;
+        if (!d) continue;                      // no date? don't show in today's Hours
+        if (d !== todayKey) continue;          // only today's items
+      }
+
+      tasks.push(task);
     }
     return tasks;
   }
@@ -1112,6 +1138,7 @@ class LifeMapzApp {
   renderCurrentView() {
     if (this.currentView === "horizons") this.renderHorizonsView();
     else if (this.currentView === "cascade") this.renderCascadeView();
+    else if (this.currentView === "calendar") this.renderCalendarView();
   }
 
   renderHorizonsView() {
@@ -1178,6 +1205,147 @@ class LifeMapzApp {
           ${t.cascadesTo ? `<div><small>→ ${t.cascadesTo.join(" → ")}</small></div>` : ""}
         </div>
       `).join("") || '<div class="empty-state">No tasks</div>';
+    });
+  }
+
+  /* --------------------- Calendar View (read-only month grid) --------------------- */
+  _ensureCalendarScaffold() {
+    const view = document.getElementById("calendar-view");
+    if (!view) return null;
+
+    // If the scaffold is missing, build it once (non-invasive)
+    if (!view.dataset.scaffolded) {
+      view.innerHTML = `
+        <div class="calendar-viewport">
+          <div class="calendar-header" style="display:flex;align-items:center;gap:8px;">
+            <button class="header-btn" id="cal-prev" title="Previous month"><i class="fas fa-chevron-left"></i></button>
+            <h3 id="cal-month-label" style="margin:0 12px;">Month YYYY</h3>
+            <button class="header-btn" id="cal-next" title="Next month"><i class="fas fa-chevron-right"></i></button>
+            <div style="flex:1"></div>
+            <button class="header-btn" id="cal-today" title="Jump to today"><i class="fas fa-dot-circle"></i> Today</button>
+          </div>
+          <div class="calendar-weekdays" style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:8px;">
+            ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="weekday" style="text-align:center;font-weight:600;opacity:.75">${d}</div>`).join("")}
+          </div>
+          <div class="calendar-grid" id="calendar-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:8px;"></div>
+        </div>
+      `;
+      view.dataset.scaffolded = "1";
+      // wire buttons
+      this._wireCalendarNav();
+    }
+    return view;
+  }
+
+  _wireCalendarNav() {
+    const prev = document.getElementById("cal-prev");
+    const next = document.getElementById("cal-next");
+    const today = document.getElementById("cal-today");
+    prev?.addEventListener("click", () => { 
+      const d = new Date(this.calendar.current);
+      d.setMonth(d.getMonth() - 1); 
+      this.calendar.current = d; 
+      this.renderCalendarView();
+    });
+    next?.addEventListener("click", () => { 
+      const d = new Date(this.calendar.current);
+      d.setMonth(d.getMonth() + 1); 
+      this.calendar.current = d; 
+      this.renderCalendarView();
+    });
+    today?.addEventListener("click", () => {
+      this.calendar.current = new Date();
+      this.renderCalendarView();
+    });
+  }
+
+  renderCalendarView() {
+    const view = this._ensureCalendarScaffold();
+    if (!view) return; // HTML may not include Calendar view yet
+
+    const monthLabel = document.getElementById("cal-month-label");
+    const grid = document.getElementById("calendar-grid");
+    if (!grid) return;
+
+    const base = new Date(this.calendar.current);
+    const year = base.getFullYear();
+    const month = base.getMonth();
+
+    // First cell: move to the first of the month, then back to Sunday
+    const firstOfMonth = new Date(year, month, 1);
+    const startOffset = firstOfMonth.getDay(); // 0..6 (Sun..Sat)
+    const startDate = new Date(firstOfMonth);
+    startDate.setDate(firstOfMonth.getDate() - startOffset);
+
+    // 6 weeks * 7 days = 42 cells to cover all cases
+    const cells = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(startDate);
+      d.setDate(startDate.getDate() + i);
+      cells.push(d);
+    }
+
+    // Map tasks by date key
+    const byDate = new Map();
+    for (const t of this.data.tasks) {
+      if (t.completed) continue;
+      const key = t?.timeSettings?.date;
+      if (!key) continue;
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key).push(t);
+    }
+
+    // Label
+    if (monthLabel) {
+      const fmt = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
+      monthLabel.textContent = fmt.format(firstOfMonth);
+    }
+
+    const todayKey = this._todayKey();
+    const cellHtml = cells.map((d) => {
+      const key = this._dateKey(d);
+      const inMonth = d.getMonth() === month;
+      const items = byDate.get(key) || [];
+      const hasItems = items.length > 0;
+      const isToday = key === todayKey;
+
+      const titles = hasItems
+        ? `<ul class="cal-items" style="list-style:none;margin:6px 0 0;padding:0;max-height:72px;overflow:auto;">
+            ${items.slice(0,3).map(t => `<li style="font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">• ${this.escapeHtml(t.title)}</li>`).join("")}
+            ${items.length > 3 ? `<li style="font-size:.8rem;opacity:.7;">+${items.length-3} more</li>` : ""}
+           </ul>`
+        : "";
+
+      return `
+        <div class="cal-cell ${inMonth ? "" : "cal-out"} ${isToday ? "cal-today" : ""}" 
+             data-date="${key}"
+             style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;min-height:90px;${inMonth?"":"opacity:.55;background:#fafafa"}${isToday?"box-shadow:0 0 0 2px rgba(124,58,237,.4) inset;":""}">
+          <div class="cal-date" style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:600;">${d.getDate()}</span>
+            ${hasItems ? `<span class="cal-badge" style="font-size:.75rem;padding:2px 6px;border-radius:999px;background:#ede9fe;">${items.length}</span>` : ""}
+          </div>
+          ${titles}
+        </div>
+      `;
+    }).join("");
+
+    grid.innerHTML = cellHtml;
+
+    // Optional: click day to prefill Add Task modal on that date
+    grid.querySelectorAll(".cal-cell").forEach(cell => {
+      cell.addEventListener("click", () => {
+        const key = cell.getAttribute("data-date");
+        this.openTaskModal({ 
+          horizon: "hours", 
+          timeSettings: { 
+            date: key, 
+            startTime: "09:00", 
+            endTime: "10:00", 
+            repeat: "none", 
+            weekdays: [] 
+          } 
+        });
+      });
     });
   }
 
@@ -1591,23 +1759,6 @@ class LifeMapzApp {
     const opts = { weekday: "long", year: "numeric", month: "long", day: "numeric" };
     const el = document.getElementById("current-date");
     if (el) el.textContent = now.toLocaleDateString("en-US", opts);
-  }
-
-  showNotification(msg, type="info") {
-    document.querySelectorAll(".notification").forEach(n => n.remove());
-    const el = document.createElement("div");
-    el.className = `notification notification-${type}`;
-    el.innerHTML = `
-      <div class="notification-content">
-        <i class="fas fa-${type === "success" ? "check" : type === "error" ? "exclamation-triangle" : "info"}"></i>
-        <span>${this.escapeHtml(msg)}</span>
-      </div>
-    `;
-    document.body.appendChild(el);
-    setTimeout(() => {
-      el.style.animation = "slideOut 0.3s ease";
-      setTimeout(() => el.parentNode && el.parentNode.removeChild(el), 300);
-    }, 3000);
   }
 }
 

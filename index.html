@@ -53,6 +53,10 @@
         <button class="nav-btn" onclick="app.switchView('cascade')">
           <i class="fas fa-stream"></i> Cascade View
         </button>
+        <!-- NEW: Calendar quick nav -->
+        <button class="nav-btn" onclick="app.switchView('calendar')">
+          <i class="fas fa-calendar"></i> Calendar
+        </button>
       </div>
     </div>
   </div>
@@ -353,6 +357,11 @@
           <i class="fas fa-stream"></i>
           <span>Cascade View</span>
         </div>
+        <!-- NEW: Calendar in Views -->
+        <div class="sidebar-item" data-view="calendar">
+          <i class="fas fa-calendar"></i>
+          <span>Calendar</span>
+        </div>
       </div>
 
       <div class="sidebar-footer">
@@ -499,6 +508,11 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- NEW: Calendar View (read-only month grid; content scaffolded by app.js) -->
+      <div id="calendar-view" class="view">
+        <!-- The app.js will inject the month header and grid here -->
       </div>
     </main>
   </div>

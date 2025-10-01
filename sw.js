@@ -1,17 +1,17 @@
-// LifeMapz - Service Worker v3.1.1
+// LifeMapz - Service Worker v3.1.3
 // Strategy: versioned pre-cache + safe upgrades
 // - Network-first for HTML/documents (fresh app shell)
 // - Cache-first for other GETs (with background update)
 // - ✨ DO NOT intercept Google/Firebase auth requests (fixes mobile sign-in)
 
-const CACHE_NAME = "lifemapz-v3.1.1";
+const CACHE_NAME = "lifemapz-v3.1.3";
 
 // Precache EXACT versioned assets (match your index.html versions)
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=3.1.1",
-  "./app.js?v=3.1.1",
+  "./styles.css?v=3.1.3",
+  "./app.js?v=3.1.3",
   "./manifest.json",
   "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
   "https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js",
@@ -138,8 +138,8 @@ self.addEventListener("message", (event) => {
   const data = event.data || {};
   if (data.type === "GET_VERSION") {
     event.ports[0]?.postMessage({
-      version: "3.1.1",
-      features: ["goals-view", "enhanced-cascade", "visual-horizons", "cloud-sync", "time-management"],
+      version: "3.1.3",
+      features: ["goals-view", "enhanced-cascade", "visual-horizons", "cloud-sync", "time-management", "calendar-view"],
     });
   }
   if (data.type === "SKIP_WAITING") {
@@ -147,4 +147,4 @@ self.addEventListener("message", (event) => {
   }
 });
 
-console.log("✅ LifeMapz Service Worker v3.1.1 loaded");
+console.log("✅ LifeMapz Service Worker v3.1.3 loaded");

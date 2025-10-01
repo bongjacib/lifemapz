@@ -6,6 +6,7 @@
   "start_url": "/lifemapz/?source=pwa",
   "scope": "/lifemapz/",
   "display": "standalone",
+  "display_override": ["standalone", "window-controls-overlay"],
   "background_color": "#ffffff",
   "theme_color": "#7c3aed",
   "orientation": "any",
@@ -13,12 +14,64 @@
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Task",
+      "short_name": "Add Task",
+      "description": "Quickly add a task",
+      "url": "/lifemapz/?action=new",
+      "icons": [
+        { "src": "icons/shortcut-add.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Visual Horizons",
+      "short_name": "Horizons",
+      "description": "Open the Visual Horizons view",
+      "url": "/lifemapz/?view=horizons",
+      "icons": [
+        { "src": "icons/shortcut-horizons.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Cascade View",
+      "short_name": "Cascade",
+      "description": "Open the Cascade view",
+      "url": "/lifemapz/?view=cascade",
+      "icons": [
+        { "src": "icons/shortcut-cascade.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Calendar",
+      "short_name": "Calendar",
+      "description": "Open the Calendar view",
+      "url": "/lifemapz/?view=calendar",
+      "icons": [
+        { "src": "icons/shortcut-calendar.png", "sizes": "96x96", "type": "image/png" }
+      ]
     }
   ],
   "categories": ["productivity", "utilities"],
