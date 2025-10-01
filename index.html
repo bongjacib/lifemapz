@@ -53,9 +53,9 @@
         <button class="nav-btn" onclick="app.switchView('cascade')">
           <i class="fas fa-stream"></i> Cascade View
         </button>
-        <!-- NEW: Calendar quick nav -->
+        <!-- UPDATED: Calendar quick nav label -->
         <button class="nav-btn" onclick="app.switchView('calendar')">
-          <i class="fas fa-calendar"></i> Calendar
+          <i class="fas fa-calendar"></i> Calendar View
         </button>
       </div>
     </div>
@@ -342,7 +342,8 @@
           <span>Monthly Goals</span>
         </div>
         <div class="sidebar-item" data-view="years">
-          <i class="fas fa-calendar-star"></i>
+          <!-- UPDATED: valid icon for Yearly Goals -->
+          <i class="fas fa-flag"></i>
           <span>Yearly Goals</span>
         </div>
         <div class="sidebar-item" data-view="life">
@@ -357,10 +358,10 @@
           <i class="fas fa-stream"></i>
           <span>Cascade View</span>
         </div>
-        <!-- NEW: Calendar in Views -->
+        <!-- UPDATED: Calendar label in Views -->
         <div class="sidebar-item" data-view="calendar">
           <i class="fas fa-calendar"></i>
-          <span>Calendar</span>
+          <span>Calendar View</span>
         </div>
       </div>
 
@@ -452,7 +453,7 @@
 
           <section class="horizon-section" data-horizon="years">
             <div class="section-header">
-              <h4><i class="fas fa-calendar-star"></i> Yearly Goals</h4>
+              <h4><i class="fas fa-flag"></i> Yearly Goals</h4>
               <button class="section-add-btn" onclick="app.addToHorizon('years')">
                 <i class="fas fa-plus"></i>
               </button>

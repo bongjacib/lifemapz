@@ -415,6 +415,10 @@ class LifeMapzApp {
     this.firebaseSync = { enabled:false, unsub:null, docRef:null, writing:false, lastRemote:null };
     this.syncEnabled = false; // Cloud Sync (Pantry/JSONBin)
     this.calendar = { current: new Date() }; // state for Calendar view
+
+    // NEW: override the "today" date used by Hours view when navigating from Calendar
+    this.hoursDateOverride = null;
+
     this.init();
   }
 
@@ -1012,7 +1016,11 @@ class LifeMapzApp {
   _handleSidebarViewClick(view) {
     // Only 'horizons', 'cascade', 'calendar' are full-page views
     const targetViewEl = document.getElementById(`${view}-view`);
-    if (targetViewEl) { this.switchView(view); return; }
+    if (targetViewEl) { 
+      // If user clicks Hours (via section scroll), clear date override; not needed for your request.
+      this.switchView(view); 
+      return; 
+    }
     // If it's one of the horizons (days/weeks/etc.), scroll within Horizons view
     const horizonIds = ["hours", "days", "weeks", "months", "years", "life"];
     if (horizonIds.includes(view)) {
@@ -1090,7 +1098,8 @@ class LifeMapzApp {
 
     this.currentView = viewName;
 
-    const titles = { "horizons": "Visual Horizons", "cascade": "Cascade Flow", "calendar": "Calendar" };
+    // UPDATED: calendar title shows "Calendar View"
+    const titles = { "horizons": "Visual Horizons", "cascade": "Cascade Flow", "calendar": "Calendar View" };
     const titleEl = document.getElementById("current-view-title");
     if (titleEl) titleEl.textContent = titles[viewName] || viewName;
 
@@ -1106,7 +1115,12 @@ class LifeMapzApp {
   _isInCurrentMonth(d){ const t=new Date(); return d.getFullYear()===t.getFullYear() && d.getMonth()===t.getMonth(); }
   _isInCurrentYear(d){ const t=new Date(); return d.getFullYear()===t.getFullYear(); }
   _taskDate(task){ const ds=task?.timeSettings?.date; if(!ds)return null; const d=new Date(ds); return isNaN(d)?null:d; }
-  _todayKey(){ return this.toInputDate(new Date()); }
+
+  // UPDATED: if user clicked a day in Calendar, Hours should use that date; else real today
+  _todayKey(){ 
+    const base = this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); 
+    return this.toInputDate(base); 
+  }
   _dateKey(d){ return this.toInputDate(d); }
 
   _getTasksForHorizon(horizon) {
@@ -1127,7 +1141,7 @@ class LifeMapzApp {
       if (horizon === "hours") {
         const d = task?.timeSettings?.date || null;
         if (!d) continue;                      // no date? don't show in today's Hours
-        if (d !== todayKey) continue;          // only today's items
+        if (d !== todayKey) continue;          // only the selected day's items
       }
 
       tasks.push(task);
@@ -1218,9 +1232,9 @@ class LifeMapzApp {
       view.innerHTML = `
         <div class="calendar-viewport">
           <div class="calendar-header" style="display:flex;align-items:center;gap:8px;">
-            <button class="header-btn" id="cal-prev" title="Previous month"><i class="fas fa-chevron-left"></i></button>
+            <button class="header-btn" id="cal-prev" title="Next month"><i class="fas fa-chevron-left"></i></button>
             <h3 id="cal-month-label" style="margin:0 12px;">Month YYYY</h3>
-            <button class="header-btn" id="cal-next" title="Next month"><i class="fas fa-chevron-right"></i></button>
+            <button class="header-btn" id="cal-next" title="Previous month"><i class="fas fa-chevron-right"></i></button>
             <div style="flex:1"></div>
             <button class="header-btn" id="cal-today" title="Jump to today"><i class="fas fa-dot-circle"></i> Today</button>
           </div>
@@ -1241,18 +1255,24 @@ class LifeMapzApp {
     const prev = document.getElementById("cal-prev");
     const next = document.getElementById("cal-next");
     const today = document.getElementById("cal-today");
+
+    // UPDATED: per your request:
+    // Left (prev button) -> NEXT month
     prev?.addEventListener("click", () => { 
-      const d = new Date(this.calendar.current);
-      d.setMonth(d.getMonth() - 1); 
-      this.calendar.current = d; 
-      this.renderCalendarView();
-    });
-    next?.addEventListener("click", () => { 
       const d = new Date(this.calendar.current);
       d.setMonth(d.getMonth() + 1); 
       this.calendar.current = d; 
       this.renderCalendarView();
     });
+
+    // Right (next button) -> PREVIOUS month
+    next?.addEventListener("click", () => { 
+      const d = new Date(this.calendar.current);
+      d.setMonth(d.getMonth() - 1); 
+      this.calendar.current = d; 
+      this.renderCalendarView();
+    });
+
     today?.addEventListener("click", () => {
       this.calendar.current = new Date();
       this.renderCalendarView();
@@ -1331,20 +1351,15 @@ class LifeMapzApp {
 
     grid.innerHTML = cellHtml;
 
-    // Optional: click day to prefill Add Task modal on that date
+    // UPDATED: Click a day -> go to Hours view for THAT day
     grid.querySelectorAll(".cal-cell").forEach(cell => {
       cell.addEventListener("click", () => {
         const key = cell.getAttribute("data-date");
-        this.openTaskModal({ 
-          horizon: "hours", 
-          timeSettings: { 
-            date: key, 
-            startTime: "09:00", 
-            endTime: "10:00", 
-            repeat: "none", 
-            weekdays: [] 
-          } 
-        });
+        this.hoursDateOverride = key;                 // set the date Hours should use
+        this.switchView("horizons");                  // show horizons view
+        const hoursSection = document.querySelector('.horizon-section[data-horizon="hours"]');
+        if (hoursSection) hoursSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        this.renderCurrentView();                     // refresh lists with the override date
       });
     });
   }
@@ -1650,7 +1665,7 @@ class LifeMapzApp {
 
   deleteTask(taskId) {
     if (confirm("Are you sure you want to delete this task?")) {
-      this.data.tasks = this.data.tasks.filter(t => t.id !== taskId);
+      this.data = this.data.tasks.filter(t => t.id !== taskId);
       this.saveData();
       this.renderCurrentView();
       this.showNotification("Task deleted", "success");
@@ -1693,6 +1708,7 @@ class LifeMapzApp {
   }
 
   /* -------- Data Management -------- */
+    /* -------- Data Management -------- */
   exportData() {
     const dataStr = JSON.stringify(this.data, null, 2);
     const dataBlob = new Blob([dataStr], { type: "application/json" });
@@ -1738,9 +1754,44 @@ class LifeMapzApp {
   }
 
   /* -------- Misc helpers -------- */
-  openModal(id) { const el = document.getElementById(id); if (el){ el.style.display = "block"; document.body.style.overflow = "hidden"; } }
-  closeModal(id) { const el = document.getElementById(id); if (el){ el.style.display = "none"; document.body.style.overflow = ""; } }
-  closeAllModals() { document.querySelectorAll(".modal").forEach(m => m.style.display = "none"); document.body.style.overflow = ""; }
+  showNotification(message, type = "info") {
+    // Lightweight toast (non-invasive; no extra CSS required)
+    const toast = document.createElement("div");
+    toast.textContent = message;
+    toast.className = `lmz-toast lmz-${type}`;
+    Object.assign(toast.style, {
+      position: "fixed",
+      zIndex: 9999,
+      right: "16px",
+      bottom: "16px",
+      padding: "10px 12px",
+      borderRadius: "8px",
+      background: type === "error" ? "#fecaca"
+               : type === "success" ? "#bbf7d0"
+               : type === "warning" ? "#fde68a"
+               : "#e5e7eb",
+      color: "#111827",
+      boxShadow: "0 6px 20px rgba(0,0,0,.15)",
+      fontSize: "0.95rem",
+      maxWidth: "90vw"
+    });
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = "0"; toast.style.transition = "opacity .3s"; }, 2400);
+    setTimeout(() => toast.remove(), 2800);
+  }
+
+  openModal(id) { 
+    const el = document.getElementById(id); 
+    if (el){ el.style.display = "block"; document.body.style.overflow = "hidden"; } 
+  }
+  closeModal(id) { 
+    const el = document.getElementById(id); 
+    if (el){ el.style.display = "none"; document.body.style.overflow = ""; } 
+  }
+  closeAllModals() { 
+    document.querySelectorAll(".modal").forEach(m => m.style.display = "none"); 
+    document.body.style.overflow = ""; 
+  }
 
   toggleMobileMenu(show) {
     const sidebar = document.getElementById("main-sidebar");
@@ -1750,15 +1801,21 @@ class LifeMapzApp {
     }
   }
 
-  generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2,5); }
+  generateId() { 
+    return Date.now().toString(36) + Math.random().toString(36).substr(2,5); 
+  }
 
-  escapeHtml(text) { const div = document.createElement("div"); div.textContent = text; return div.innerHTML; }
+  escapeHtml(text) { 
+    const div = document.createElement("div"); 
+    div.textContent = text; 
+    return div.innerHTML; 
+  }
 
   updateDateDisplay() {
-    const now = new Date();
+    const base = this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date();
     const opts = { weekday: "long", year: "numeric", month: "long", day: "numeric" };
     const el = document.getElementById("current-date");
-    if (el) el.textContent = now.toLocaleDateString("en-US", opts);
+    if (el) el.textContent = base.toLocaleDateString("en-US", opts);
   }
 }
 
@@ -1766,3 +1823,4 @@ class LifeMapzApp {
 document.addEventListener("DOMContentLoaded", () => {
   window.app = new LifeMapzApp();
 });
+

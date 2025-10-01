@@ -2,9 +2,9 @@
   "name": "LifeMapz - Visual Time Horizons",
   "short_name": "LifeMapz",
   "description": "Visual time management with cascading goals and intelligent task scheduling",
-  "id": "/lifemapz/",
-  "start_url": "/lifemapz/?source=pwa",
-  "scope": "/lifemapz/",
+  "id": "./",
+  "start_url": "./?source=pwa",
+  "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "window-controls-overlay"],
   "background_color": "#ffffff",
@@ -41,7 +41,7 @@
       "name": "Add Task",
       "short_name": "Add Task",
       "description": "Quickly add a task",
-      "url": "/lifemapz/?action=new",
+      "url": "./?action=new",
       "icons": [
         { "src": "icons/shortcut-add.png", "sizes": "96x96", "type": "image/png" }
       ]
@@ -50,7 +50,7 @@
       "name": "Visual Horizons",
       "short_name": "Horizons",
       "description": "Open the Visual Horizons view",
-      "url": "/lifemapz/?view=horizons",
+      "url": "./?view=horizons",
       "icons": [
         { "src": "icons/shortcut-horizons.png", "sizes": "96x96", "type": "image/png" }
       ]
@@ -59,7 +59,7 @@
       "name": "Cascade View",
       "short_name": "Cascade",
       "description": "Open the Cascade view",
-      "url": "/lifemapz/?view=cascade",
+      "url": "./?view=cascade",
       "icons": [
         { "src": "icons/shortcut-cascade.png", "sizes": "96x96", "type": "image/png" }
       ]
@@ -68,7 +68,7 @@
       "name": "Calendar",
       "short_name": "Calendar",
       "description": "Open the Calendar view",
-      "url": "/lifemapz/?view=calendar",
+      "url": "./?view=calendar",
       "icons": [
         { "src": "icons/shortcut-calendar.png", "sizes": "96x96", "type": "image/png" }
       ]
