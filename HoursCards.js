@@ -41,82 +41,72 @@
         </div>
 
         <div class="task-actions" style="display:flex;gap:6px;">
-          <button class="task-btn lmz-move-up" title="Move up (Alt+↑)" data-action="move-up"><i class="fas fa-arrow-up"></i></button>
-          <button class="task-btn lmz-move-down" title="Move down (Alt+↓)" data-action="move-down"><i class="fas fa-arrow-down"></i></button>
-          <button class="task-btn lmz-edit" title="Edit" data-action="edit"><i class="fas fa-edit"></i></button>
-          <button class="task-btn lmz-delete" title="Delete" data-action="delete"><i class="fas fa-trash"></i></button>
+          <button class="task-btn lmz-move-up" title="Move up (Alt+↑)" data-action="move-up" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-arrow-up"></i></button>
+          <button class="task-btn lmz-move-down" title="Move down (Alt+↓)" data-action="move-down" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-arrow-down"></i></button>
+          <button class="task-btn lmz-edit" title="Edit" data-action="edit" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-edit"></i></button>
+          <button class="task-btn lmz-delete" title="Delete" data-action="delete" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-trash"></i></button>
         </div>
       </div>
     `;
   }
 
-  function bindCardControls(container, onReorder, onEdit, onDelete) {
-    console.log('Binding DIRECT card controls');
-
-    // Remove ALL existing event listeners by cloning
-    const newContainer = container.cloneNode(true);
-    container.parentNode.replaceChild(newContainer, container);
-    
-    const cards = newContainer.querySelectorAll('.lmz-card');
-    
-    cards.forEach(card => {
-      const buttons = card.querySelectorAll('.task-btn');
-      
-      buttons.forEach(button => {
-        button.addEventListener('click', function(e) {
-          console.log('DIRECT BUTTON CLICK:', this.dataset.action);
-          e.preventDefault();
-          e.stopPropagation();
-          
-          const card = this.closest('.lmz-card');
-          const id = card.dataset.id;
-          const action = this.dataset.action;
-          
-          switch(action) {
-            case 'move-up':
-              const prev = card.previousElementSibling;
-              if (prev && prev.classList.contains('lmz-card')) {
-                newContainer.insertBefore(card, prev);
-                if (typeof onReorder === 'function') {
-                  const ids = Array.from(newContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
-                  onReorder(ids);
-                }
-              }
-              break;
-              
-            case 'move-down':
-              const next = card.nextElementSibling;
-              if (next && next.classList.contains('lmz-card')) {
-                newContainer.insertBefore(next, card);
-                if (typeof onReorder === 'function') {
-                  const ids = Array.from(newContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
-                  onReorder(ids);
-                }
-              }
-              break;
-              
-            case 'edit':
-              console.log('Calling edit for:', id);
-              if (typeof onEdit === 'function') {
-                onEdit(id);
-              }
-              break;
-              
-            case 'delete':
-              console.log('Calling delete for:', id);
-              if (typeof onDelete === 'function') {
-                onDelete(id);
-              }
-              break;
-          }
-        });
-      });
-    });
-    
-    return newContainer;
-  }
-
   const HoursCards = {
+    _currentCallbacks: null,
+    _currentContainer: null,
+
+    _handleButtonClick(button) {
+      console.log('ONCLICK HANDLER:', button.dataset.action);
+      if (!HoursCards._currentCallbacks) {
+        console.error('No callbacks registered');
+        return;
+      }
+
+      const card = button.closest('.lmz-card');
+      if (!card) {
+        console.error('No card found');
+        return;
+      }
+
+      const id = card.dataset.id;
+      const action = button.dataset.action;
+
+      switch(action) {
+        case 'move-up':
+          const prev = card.previousElementSibling;
+          if (prev && prev.classList.contains('lmz-card')) {
+            HoursCards._currentContainer.insertBefore(card, prev);
+            if (typeof HoursCards._currentCallbacks.onReorder === 'function') {
+              const ids = Array.from(HoursCards._currentContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+              HoursCards._currentCallbacks.onReorder(ids);
+            }
+          }
+          break;
+
+        case 'move-down':
+          const next = card.nextElementSibling;
+          if (next && next.classList.contains('lmz-card')) {
+            HoursCards._currentContainer.insertBefore(next, card);
+            if (typeof HoursCards._currentCallbacks.onReorder === 'function') {
+              const ids = Array.from(HoursCards._currentContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+              HoursCards._currentCallbacks.onReorder(ids);
+            }
+          }
+          break;
+
+        case 'edit':
+          if (typeof HoursCards._currentCallbacks.onEdit === 'function') {
+            HoursCards._currentCallbacks.onEdit(id);
+          }
+          break;
+
+        case 'delete':
+          if (typeof HoursCards._currentCallbacks.onDelete === 'function') {
+            HoursCards._currentCallbacks.onDelete(id);
+          }
+          break;
+      }
+    },
+
     mount(container, tasks, opts = {}) {
       if (!container) {
         console.warn('HoursCards: container not found');
@@ -130,22 +120,27 @@
       
       console.log('HoursCards: mounting', tasks.length, 'tasks');
       
+      // Store callbacks and container for onclick handlers
+      HoursCards._currentCallbacks = {
+        onReorder: opts.onReorder,
+        onEdit: opts.onEdit,
+        onDelete: opts.onDelete
+      };
+      HoursCards._currentContainer = container;
+      
       const html = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
       container.innerHTML = html;
-
-      // Wire up DIRECT button controls
-      const newContainer = bindCardControls(container, opts.onReorder, opts.onEdit, opts.onDelete);
 
       // Enable drag & drop
       if (window.DnD && typeof window.DnD.list === 'function') {
         console.log('HoursCards: enabling DnD');
-        HoursCards._sortable = window.DnD.list(newContainer, {
+        HoursCards._sortable = window.DnD.list(container, {
           itemSelector: '.lmz-card',
           handleSelector: '.lmz-card-handle',
           onReorder: (data) => { 
             console.log('HoursCards: DnD reorder', data);
             if (typeof opts.onReorder === 'function') {
-              const ids = Array.from(newContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+              const ids = Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
               opts.onReorder(ids);
             }
           }
@@ -156,6 +151,8 @@
     },
 
     destroy() {
+      HoursCards._currentCallbacks = null;
+      HoursCards._currentContainer = null;
       if (HoursCards._sortable && typeof HoursCards._sortable.destroy === 'function') {
         HoursCards._sortable.destroy();
         HoursCards._sortable = null;
