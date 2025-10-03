@@ -17,6 +17,8 @@
 const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.3";
 /** If true, store/read cloud session id in Firestore so devices auto-join after login */
 const AUTO_LINK_CLOUD = true;
+/** Toggle verbose logs */
+const DEBUG = false;
 
 /* --------------------- Firebase --------------------- */
 const firebaseConfig = {
@@ -299,29 +301,7 @@ class LifeMapzApp {
     this.hoursDateOverride = null;
     this.init();
   }
-/**
- * Get tasks filtered for a specific horizon
- */
-_getTasksForHorizon(horizon) {
-  const tasks = [];
-  const todayKey = this._todayKey();
-  
-  for (const task of this.data.tasks) {
-    if (task.completed) continue;
-    
-    const belongs = task.horizon === horizon || (task.cascadesTo && task.cascadesTo.includes(horizon));
-    if (!belongs) continue;
-    
-    if (horizon === "hours") {
-      const d = task?.timeSettings?.date || null;
-      if (!d || d !== todayKey) continue;
-    }
-    
-    tasks.push(task);
-  }
-  
-  return tasks;
-}
+
   init() {
     this.applyTheme();
     this._runtimeTextTweaks();
@@ -493,7 +473,15 @@ _getTasksForHorizon(horizon) {
     this.showNotification(`${this.currentTheme === "dark" ? "Dark" : "Light"} mode enabled`, "success");
   }
 
-  loadData() { const saved = localStorage.getItem("lifemapz-data"); return saved ? JSON.parse(saved) : this.getDefaultData(); }
+  loadData() {
+    try {
+      const saved = localStorage.getItem("lifemapz-data");
+      return saved ? JSON.parse(saved) : this.getDefaultData();
+    } catch (e) {
+      console.warn("Corrupt local data, resetting.", e);
+      return this.getDefaultData();
+    }
+  }
   getDefaultData() { return { version: APP_VERSION, tasks: [], lastSaved: new Date().toISOString() }; }
 
   setupSampleData() {
@@ -737,81 +725,140 @@ _getTasksForHorizon(horizon) {
     return tasks;
   }
 
+  // ---- Hours order persistence (per date) ----
+  getHoursOrder(dateKey) {
+    try { return JSON.parse(localStorage.getItem("lmz-hours-order-" + dateKey)) || []; }
+    catch { return []; }
+  }
+  setHoursOrder(dateKey, ids) {
+    localStorage.setItem("lmz-hours-order-" + dateKey, JSON.stringify(ids || []));
+  }
+
   renderCurrentView() {
     if (this.currentView === "horizons") this.renderHorizonsView();
     else if (this.currentView === "cascade") this.renderCascadeView();
     else if (this.currentView === "calendar") this.renderCalendarView();
   }
 
-renderHorizonsView() {
-  const horizons = ["hours", "days", "weeks", "months", "years", "life"];
-  horizons.forEach(h => {
-    const container = document.getElementById(`${h}-tasks`);
-    if (!container) {
-      console.warn(`Container not found for ${h}`);
-      return;
-    }
-    
-    const tasks = this._getTasksForHorizon(h);
-    console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
-    
-    if (h === "hours") {
-      // Use HoursCards for the hours view
-      console.log('Attempting to use HoursCards for hours view');
-      if (window.HoursCards && typeof window.HoursCards.mount === 'function') {
-        console.log('HoursCards found, mounting...');
-        window.HoursCards.mount(container, tasks, {
-          onReorder: (ids) => this.handleHoursReorder(ids),
-          onEdit: (id) => this.editTask(id),
-          onDelete: (id) => this.deleteTask(id)
-        });
-        console.log('HoursCards mount completed');
+  renderHorizonsView() {
+    const horizons = ["hours", "days", "weeks", "months", "years", "life"];
+    horizons.forEach(h => {
+      const container = document.getElementById(`${h}-tasks`);
+      if (!container) {
+        if (DEBUG) console.warn(`Container not found for ${h}`);
+        return;
+      }
+
+      let tasks = this._getTasksForHorizon(h);
+
+      // Apply saved order for Hours (per selected date)
+      if (h === "hours") {
+        const savedOrder = this.getHoursOrder(this._todayKey());
+        if (savedOrder && savedOrder.length) {
+          const map = new Map(tasks.map(t => [t.id, t]));
+          const ordered = [];
+          savedOrder.forEach(id => { if (map.has(id)) { ordered.push(map.get(id)); map.delete(id); } });
+          for (const t of map.values()) ordered.push(t);
+          tasks = ordered;
+        }
+      }
+
+      if (DEBUG) console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
+
+      if (h === "hours") {
+        // Use HoursCards for the hours view
+        if (DEBUG) console.log('Attempting to use HoursCards for hours view');
+        if (window.HoursCards && typeof window.HoursCards.mount === 'function') {
+          try { window.HoursCards.unmount?.(container); } catch {}
+          if (DEBUG) console.log('HoursCards found, mounting...');
+          window.HoursCards.mount(container, tasks, {
+            onReorder: (ids) => this.handleHoursReorder(ids),
+            onEdit: (id) => this.editTask(id),
+            onDelete: (id) => this.deleteTask(id)
+          });
+          if (DEBUG) console.log('HoursCards mount completed');
+        } else {
+          if (DEBUG) console.log('HoursCards not available, using fallback');
+          // Fallback to regular rendering
+          container.innerHTML = tasks.length === 0 ?
+            '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
+            tasks.map(t => this.renderTaskItem(t)).join("");
+
+          // Wire drag & drop for Hours list (per date)
+          this._wireHoursDnD(container, this._todayKey());
+        }
       } else {
-        console.log('HoursCards not available, using fallback');
-        // Fallback to regular rendering
-        container.innerHTML = tasks.length === 0 ? 
-          '<div class="empty-state">No tasks yet. Click + to add one.</div>' : 
+        // Regular rendering for other horizons
+        container.innerHTML = tasks.length === 0 ?
+          '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
           tasks.map(t => this.renderTaskItem(t)).join("");
       }
-    } else {
-      // Regular rendering for other horizons
-      container.innerHTML = tasks.length === 0 ? 
-        '<div class="empty-state">No tasks yet. Click + to add one.</div>' : 
-        tasks.map(t => this.renderTaskItem(t)).join("");
-    }
-    
-    // Add the "Back to Today" chip for hours view
-    if (h === "hours") {
-      const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
-      if (header) {
-        let chip = header.querySelector("#hours-override-chip");
-        const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
-        if (overrideActive) {
-          if (!chip) {
-            chip = document.createElement("button");
-            chip.id = "hours-override-chip";
-            chip.type = "button";
-            chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
-            header.appendChild(chip);
-          }
-          chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
-          chip.onclick = () => this.clearHoursDateOverride();
-        } else if (chip) chip.remove();
-      }
-    }
-  });
-}
 
-/**
- * Handle reordering of hours tasks
- */
-handleHoursReorder(ids) {
-  console.log('Hours reorder triggered with IDs:', ids);
-  this.showNotification("Tasks reordered", "success");
-  
-  // Optional: Implement actual reordering logic here
-  // This would update the task order in your data model
-}
+      // Add the "Back to Today" chip for hours view
+      if (h === "hours") {
+        const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
+        if (header) {
+          let chip = header.querySelector("#hours-override-chip");
+          const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
+          if (overrideActive) {
+            if (!chip) {
+              chip = document.createElement("button");
+              chip.id = "hours-override-chip";
+              chip.type = "button";
+              chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
+              header.appendChild(chip);
+            }
+            chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
+            chip.onclick = () => this.clearHoursDateOverride();
+          } else if (chip) chip.remove();
+        }
+      }
+    });
+  }
+
+  /**
+   * Handle reordering of hours tasks
+   */
+  handleHoursReorder(ids) {
+    if (DEBUG) console.log('Hours reorder triggered with IDs:', ids);
+    this.setHoursOrder(this._todayKey(), ids);
+    this.showNotification("Tasks reordered", "success");
+  }
+
+  // ----- Fallback drag & drop (Hours) -----
+  _wireHoursDnD(container, dateKey) {
+    container.querySelectorAll(".task-item").forEach(item => {
+      item.setAttribute("draggable", "true");
+      item.addEventListener("dragstart", (e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", item.dataset.id);
+        item.classList.add("dragging");
+      });
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+        const ids = Array.from(container.querySelectorAll(".task-item")).map(el => el.dataset.id);
+        this.setHoursOrder(dateKey, ids);
+      });
+    });
+
+    container.ondragover = (e) => {
+      e.preventDefault();
+      const after = this._getDragAfterElement(container, e.clientY);
+      const dragging = container.querySelector(".task-item.dragging");
+      if (!dragging) return;
+      if (after == null) container.appendChild(dragging);
+      else container.insertBefore(dragging, after);
+    };
+  }
+  _getDragAfterElement(container, y) {
+    const items = [...container.querySelectorAll(".task-item:not(.dragging)")];
+    return items.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) return { offset, element: child };
+      return closest;
+    }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+  }
 
   renderTaskItem(task) {
     const timeInfo = task.timeSettings ? this.renderTimeInfo(task.timeSettings) : "";
@@ -864,9 +911,9 @@ handleHoursReorder(ids) {
       view.innerHTML = `
         <div class="calendar-viewport">
           <div class="calendar-header" style="display:flex;align-items:center;gap:8px;">
-            <button class="header-btn" id="cal-prev" title="Next month"><i class="fas fa-chevron-left"></i></button>
+            <button class="header-btn" id="cal-prev" title="Previous month"><i class="fas fa-chevron-left"></i></button>
             <h3 id="cal-month-label" style="margin:0 12px;cursor:pointer;">Month YYYY</h3>
-            <button class="header-btn" id="cal-next" title="Previous month"><i class="fas fa-chevron-right"></i></button>
+            <button class="header-btn" id="cal-next" title="Next month"><i class="fas fa-chevron-right"></i></button>
             <div style="flex:1"></div>
             <button class="header-btn" id="cal-today" title="Jump to today"><i class="fas fa-dot-circle"></i> Today</button>
           </div>
@@ -885,8 +932,8 @@ handleHoursReorder(ids) {
     const prev = document.getElementById("cal-prev");
     const next = document.getElementById("cal-next");
     const today = document.getElementById("cal-today");
-    prev?.addEventListener("click", () => { const d = new Date(this.calendar.current); d.setMonth(d.getMonth() + 1); this.calendar.current = d; this.renderCalendarView(); });
-    next?.addEventListener("click", () => { const d = new Date(this.calendar.current); d.setMonth(d.getMonth() - 1); this.calendar.current = d; this.renderCalendarView(); });
+    prev?.addEventListener("click", () => { const d = new Date(this.calendar.current); d.setMonth(d.getMonth() - 1); this.calendar.current = d; this.renderCalendarView(); });
+    next?.addEventListener("click", () => { const d = new Date(this.calendar.current); d.setMonth(d.getMonth() + 1); this.calendar.current = d; this.renderCalendarView(); });
     today?.addEventListener("click", () => { this.calendar.current = new Date(); this.renderCalendarView(); });
     document.getElementById("cal-month-label")?.addEventListener("click", () => this._openMonthPicker());
   }
@@ -1126,6 +1173,14 @@ handleHoursReorder(ids) {
     } else {
       this.data.tasks.push(task);
     }
+
+    // Ensure Hours order is updated when adding/updating an Hours task with a date
+    if (task.horizon === "hours" && task.timeSettings?.date) {
+      const dk = task.timeSettings.date;
+      const order = this.getHoursOrder(dk);
+      if (!order.includes(task.id)) this.setHoursOrder(dk, [...order, task.id]);
+    }
+
     this.saveData();
     this.closeModal("task-modal");
     this.renderCurrentView();
@@ -1196,7 +1251,10 @@ handleHoursReorder(ids) {
   closeAllModals(){ document.querySelectorAll(".modal").forEach(m => m.style.display="none"); document.body.style.overflow=""; }
 
   toggleMobileMenu(show){ const sidebar=document.getElementById("main-sidebar"); if (sidebar){ if (typeof show==="boolean") sidebar.classList.toggle("active", show); else sidebar.classList.toggle("active"); } }
-  generateId(){ return Date.now().toString(36) + Math.random().toString(36).substr(2,5); }
+  generateId(){
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    return Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+  }
   escapeHtml(text){ const div=document.createElement("div"); div.textContent=text; return div.innerHTML; }
   updateDateDisplay(){ const base=this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); const el=document.getElementById("current-date"); if (el) el.textContent=base.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" }); }
 }

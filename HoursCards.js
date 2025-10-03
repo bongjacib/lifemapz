@@ -51,89 +51,69 @@
   }
 
   function bindCardControls(container, onReorder, onEdit, onDelete) {
-    console.log('Binding card controls with callbacks:', {
-      hasOnReorder: typeof onReorder === 'function',
-      hasOnEdit: typeof onEdit === 'function', 
-      hasOnDelete: typeof onDelete === 'function'
-    });
+    console.log('Binding DIRECT card controls');
 
-    function order() {
-      return Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
-    }
-
-    // Use a single event listener for the container
-    container.addEventListener('click', function(e) {
-      console.log('=== CLICK EVENT ===');
-      console.log('Clicked element:', e.target);
-      console.log('Button element:', e.target.closest('.task-btn'));
+    // Remove ALL existing event listeners by cloning
+    const newContainer = container.cloneNode(true);
+    container.parentNode.replaceChild(newContainer, container);
+    
+    const cards = newContainer.querySelectorAll('.lmz-card');
+    
+    cards.forEach(card => {
+      const buttons = card.querySelectorAll('.task-btn');
       
-      const button = e.target.closest('.task-btn');
-      if (!button) {
-        console.log('No button found');
-        return;
-      }
-      
-      const card = button.closest('.lmz-card');
-      if (!card) {
-        console.log('No card found');
-        return;
-      }
-      
-      const id = card.dataset.id;
-      const action = button.dataset.action;
-      
-      console.log('Action:', action, 'Task ID:', id);
-      
-      e.preventDefault();
-      e.stopPropagation();
-      
-      switch (action) {
-        case 'move-up':
-          console.log('Processing move-up');
-          const prev = card.previousElementSibling;
-          if (prev && prev.classList.contains('lmz-card')) {
-            container.insertBefore(card, prev);
-            if (typeof onReorder === 'function') {
-              console.log('Calling onReorder');
-              onReorder(order());
-            }
-          }
-          break;
+      buttons.forEach(button => {
+        button.addEventListener('click', function(e) {
+          console.log('DIRECT BUTTON CLICK:', this.dataset.action);
+          e.preventDefault();
+          e.stopPropagation();
           
-        case 'move-down':
-          console.log('Processing move-down');
-          const next = card.nextElementSibling;
-          if (next && next.classList.contains('lmz-card')) {
-            container.insertBefore(next, card);
-            if (typeof onReorder === 'function') {
-              console.log('Calling onReorder');
-              onReorder(order());
-            }
-          }
-          break;
+          const card = this.closest('.lmz-card');
+          const id = card.dataset.id;
+          const action = this.dataset.action;
           
-        case 'edit':
-          console.log('Processing edit, calling onEdit with id:', id);
-          if (typeof onEdit === 'function') {
-            onEdit(id);
-          } else {
-            console.error('onEdit is not a function!');
+          switch(action) {
+            case 'move-up':
+              const prev = card.previousElementSibling;
+              if (prev && prev.classList.contains('lmz-card')) {
+                newContainer.insertBefore(card, prev);
+                if (typeof onReorder === 'function') {
+                  const ids = Array.from(newContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+                  onReorder(ids);
+                }
+              }
+              break;
+              
+            case 'move-down':
+              const next = card.nextElementSibling;
+              if (next && next.classList.contains('lmz-card')) {
+                newContainer.insertBefore(next, card);
+                if (typeof onReorder === 'function') {
+                  const ids = Array.from(newContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+                  onReorder(ids);
+                }
+              }
+              break;
+              
+            case 'edit':
+              console.log('Calling edit for:', id);
+              if (typeof onEdit === 'function') {
+                onEdit(id);
+              }
+              break;
+              
+            case 'delete':
+              console.log('Calling delete for:', id);
+              if (typeof onDelete === 'function') {
+                onDelete(id);
+              }
+              break;
           }
-          break;
-          
-        case 'delete':
-          console.log('Processing delete, calling onDelete with id:', id);
-          if (typeof onDelete === 'function') {
-            onDelete(id);
-          } else {
-            console.error('onDelete is not a function!');
-          }
-          break;
-          
-        default:
-          console.log('Unknown action:', action);
-      }
+        });
+      });
     });
+    
+    return newContainer;
   }
 
   const HoursCards = {
@@ -153,19 +133,19 @@
       const html = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
       container.innerHTML = html;
 
-      // Wire up button controls with the provided options
-      bindCardControls(container, opts.onReorder, opts.onEdit, opts.onDelete);
+      // Wire up DIRECT button controls
+      const newContainer = bindCardControls(container, opts.onReorder, opts.onEdit, opts.onDelete);
 
       // Enable drag & drop
       if (window.DnD && typeof window.DnD.list === 'function') {
         console.log('HoursCards: enabling DnD');
-        HoursCards._sortable = window.DnD.list(container, {
+        HoursCards._sortable = window.DnD.list(newContainer, {
           itemSelector: '.lmz-card',
           handleSelector: '.lmz-card-handle',
           onReorder: (data) => { 
             console.log('HoursCards: DnD reorder', data);
             if (typeof opts.onReorder === 'function') {
-              const ids = Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+              const ids = Array.from(newContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
               opts.onReorder(ids);
             }
           }
