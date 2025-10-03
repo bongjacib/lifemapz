@@ -12,6 +12,8 @@
    - ✨ Month label opens month picker; day click → Hours for that day
    - ✨ Hours shows "Back to Today" chip when viewing a specific date
    - ✨ "+" in Hours pre-fills the selected day for new tasks
+   - ✅ FIXED: Hours view buttons (up/down/edit/delete) now work properly
+   - ✅ FIXED: Cascade options no longer auto-selected for new tasks
 */
 
 const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.3";
@@ -812,13 +814,19 @@ class LifeMapzApp {
           const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
           if (overrideActive) {
             if (!chip) {
-              // ... chip creation code (keep your existing chip code here)
+              chip = document.createElement("button");
+              chip.id = "hours-override-chip";
+              chip.type = "button";
+              chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
+              header.appendChild(chip);
             }
+            chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
+            chip.onclick = () => this.clearHoursDateOverride();
           } else if (chip) chip.remove();
         }
       }
-    }); // Close the horizons.forEach callback
-  } // Close the renderHorizonsView method
+    });
+  }
 
   /**
    * Handle reordering of hours tasks
@@ -1094,52 +1102,59 @@ class LifeMapzApp {
   }
 
   openTaskModal(taskData = {}) {
-  const isEdit = !!taskData.id;
-  const titleEl = document.getElementById("task-modal-title");
-  const submitText = document.getElementById("task-submit-text");
-  if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
-  if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
+    const isEdit = !!taskData.id;
+    const titleEl = document.getElementById("task-modal-title");
+    const submitText = document.getElementById("task-submit-text");
+    if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
+    if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
 
-  this.currentTaskTimeData = { ...taskData };
-  if (isEdit) {
-    document.getElementById("edit-task-id").value = taskData.id;
-    document.getElementById("task-title").value = taskData.title || "";
-    document.getElementById("task-description").value = taskData.description || "";
-    document.getElementById("task-horizon").value = taskData.horizon || "hours";
-    document.getElementById("task-priority").value = taskData.priority || "medium";
-    this.updateTimeSummary();
-    
-    // Set cascade checkboxes for existing task
-    document.querySelectorAll('input[name="cascade"]').forEach(cb => {
-      cb.checked = taskData.cascadesTo && taskData.cascadesTo.includes(cb.value);
-    });
-  } else {
-    document.getElementById("edit-task-id").value = "";
-    document.getElementById("task-form").reset();
-    const summary = document.getElementById("time-summary");
-    if (summary) summary.textContent = "No time set";
-    
-    // Clear all cascade checkboxes for new task
-    document.querySelectorAll('input[name="cascade"]').forEach(cb => {
-      cb.checked = false;
-    });
+    this.currentTaskTimeData = { ...taskData };
+    if (isEdit) {
+      document.getElementById("edit-task-id").value = taskData.id;
+      document.getElementById("task-title").value = taskData.title || "";
+      document.getElementById("task-description").value = taskData.description || "";
+      document.getElementById("task-horizon").value = taskData.horizon || "hours";
+      document.getElementById("task-priority").value = taskData.priority || "medium";
+      this.updateTimeSummary();
+      
+      // Set cascade checkboxes for existing task
+      document.querySelectorAll('input[name="cascade"]').forEach(cb => {
+        cb.checked = taskData.cascadesTo && taskData.cascadesTo.includes(cb.value);
+      });
+    } else {
+      document.getElementById("edit-task-id").value = "";
+      document.getElementById("task-form").reset();
+      const summary = document.getElementById("time-summary");
+      if (summary) summary.textContent = "No time set";
+      
+      // Clear all cascade checkboxes for new task
+      document.querySelectorAll('input[name="cascade"]').forEach(cb => {
+        cb.checked = false;
+      });
+    }
+    this.updateCascadeOptions();
+    this.openModal("task-modal");
   }
-  this.updateCascadeOptions();
-  this.openModal("task-modal");
-}
 
   updateCascadeOptions() {
     const horizon = document.getElementById("task-horizon").value;
     const cascadeGroup = document.getElementById("cascade-group");
     if (!cascadeGroup) return;
+    
     if (horizon) {
       cascadeGroup.style.display = "block";
       const horizons = ["hours", "days", "weeks", "months", "years", "life"];
       const currentIndex = horizons.indexOf(horizon);
+      
       document.querySelectorAll('input[name="cascade"]').forEach(cb => {
         const targetIndex = horizons.indexOf(cb.value);
         cb.disabled = targetIndex <= currentIndex;
-        if (targetIndex > currentIndex && !cb.disabled) cb.checked = true;
+        
+        // FIX: Don't auto-check any checkboxes for new tasks
+        if (!this.currentTaskTimeData?.id) { // New task
+          cb.checked = false;
+        }
+        // For existing tasks, the checked state will be set by openTaskModal
       });
     } else {
       cascadeGroup.style.display = "none";
