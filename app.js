@@ -626,15 +626,48 @@ class LifeMapzApp {
     this._wireCalendarNav();
   }
 
-  _handleSidebarViewClick(view) {
-    const targetViewEl = document.getElementById(`${view}-view`);
-    if (targetViewEl) { this.switchView(view); return; }
-    const horizonIds = ["hours", "days", "weeks", "months", "years", "life"];
-    if (horizonIds.includes(view)) {
-      this.switchView("horizons");
-      document.querySelector(`.horizon-section[data-horizon="${view}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+// Replace the entire _handleSidebarViewClick method with this version:
+_handleSidebarViewClick(view) {
+  const targetViewEl = document.getElementById(`${view}-view`);
+  if (targetViewEl) { 
+    this.switchView(view); 
+    // Close mobile sidebar after clicking any view
+    if (window.innerWidth <= 768) {
+      this.toggleMobileMenu(false);
     }
+    return;
   }
+  
+  const horizonIds = ["days", "weeks", "months", "years", "life"];
+  if (horizonIds.includes(view)) {
+    // Switch to visual horizons view
+    this.switchView("horizons");
+    
+    // Close mobile sidebar
+    if (window.innerWidth <= 768) {
+      this.toggleMobileMenu(false);
+    }
+    
+    // Remove focus from any previously focused section
+    document.querySelectorAll('.horizon-section.focused').forEach(section => {
+      section.classList.remove('focused');
+    });
+    
+    // Scroll to and highlight the specific horizon section
+    setTimeout(() => {
+      const section = document.querySelector(`.horizon-section[data-horizon="${view}"]`);
+      if (section) {
+        section.classList.add('focused');
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+        
+        // Remove focus after 3 seconds
+        setTimeout(() => {
+          section.classList.remove('focused');
+        }, 3000);
+      }
+    }, 100);
+  }
+}
 
   setupTimeModalEvents() {
     this.ensureDatePicker();
@@ -906,21 +939,22 @@ class LifeMapzApp {
     return html;
   }
 
-  renderCascadeView() {
-    const horizons = ["life", "years", "months", "weeks", "days", "hours"];
-    horizons.forEach(h => {
-      const container = document.getElementById(`cascade-${h}`);
-      if (!container) return;
-      const tasks = this.data.tasks.filter(t => t.horizon === h && !t.completed);
-      container.innerHTML = tasks.map(t => `
-        <div class="cascade-task">
-          <strong>${this.escapeHtml(t.title)}</strong>
-          ${t.description ? `<div>${this.escapeHtml(t.description)}</div>` : ""}
-          ${t.timeSettings ? `<div><small>${this.renderTimeSummary(t.timeSettings)}</small></div>` : ""}
-          ${t.cascadesTo ? `<div><small>→ ${t.cascadesTo.join(" → ")}</small></div>` : ""}
-        </div>`).join("") || '<div class="empty-state">No tasks</div>';
-    });
-  }
+// Replace the existing renderCascadeView method with this version:
+renderCascadeView() {
+  const horizons = ["life", "years", "months", "weeks", "days"]; // Removed "hours"
+  horizons.forEach(h => {
+    const container = document.getElementById(`cascade-${h}`);
+    if (!container) return;
+    const tasks = this.data.tasks.filter(t => t.horizon === h && !t.completed);
+    container.innerHTML = tasks.map(t => `
+      <div class="cascade-task">
+        <strong>${this.escapeHtml(t.title)}</strong>
+        ${t.description ? `<div>${this.escapeHtml(t.description)}</div>` : ""}
+        ${t.timeSettings ? `<div><small>${this.renderTimeSummary(t.timeSettings)}</small></div>` : ""}
+        ${t.cascadesTo ? `<div><small>→ ${t.cascadesTo.join(" → ")}</small></div>` : ""}
+      </div>`).join("") || '<div class="empty-state">No tasks</div>';
+  });
+}
 
   _ensureCalendarScaffold() {
     const view = document.getElementById("calendar-view");
@@ -1142,28 +1176,35 @@ class LifeMapzApp {
     this.openModal("task-modal");
   }
 
-  updateCascadeOptions() {
-    const horizon = document.getElementById("task-horizon").value;
-    const cascadeGroup = document.getElementById("cascade-group");
-    if (!cascadeGroup) return;
+// Replace the existing updateCascadeOptions method with this version:
+updateCascadeOptions() {
+  const horizon = document.getElementById("task-horizon").value;
+  const cascadeGroup = document.getElementById("cascade-group");
+  if (!cascadeGroup) return;
+  
+  if (horizon) {
+    cascadeGroup.style.display = "block";
+    const horizons = ["hours", "days", "weeks", "months", "years", "life"];
+    const currentIndex = horizons.indexOf(horizon);
     
-    if (horizon) {
-      cascadeGroup.style.display = "block";
-      const horizons = ["hours", "days", "weeks", "months", "years", "life"];
-      const currentIndex = horizons.indexOf(horizon);
+    document.querySelectorAll('input[name="cascade"]').forEach(cb => {
+      const targetIndex = horizons.indexOf(cb.value);
+      // Enable only horizons that come AFTER the current horizon
+      cb.disabled = targetIndex <= currentIndex;
       
-      document.querySelectorAll('input[name="cascade"]').forEach(cb => {
-        const targetIndex = horizons.indexOf(cb.value);
-        cb.disabled = targetIndex <= currentIndex;
-        
-        // FIX: NEVER auto-check any checkboxes
-        const isEdit = !!this.currentTaskTimeData?.id;
-        if (!isEdit) cb.checked = false;
-      });
-    } else {
-      cascadeGroup.style.display = "none";
-    }
+      // For Hours tasks, ensure cascade options work properly
+      if (horizon === "hours") {
+        cb.disabled = false; // Hours can cascade to all other horizons
+      }
+      
+      // Never auto-check checkboxes for new tasks
+      const isEdit = !!this.currentTaskTimeData?.id;
+      if (!isEdit) cb.checked = false;
+    });
+  } else {
+    cascadeGroup.style.display = "none";
   }
+}
 
   getCascadeSelections() { return Array.from(document.querySelectorAll('input[name="cascade"]:checked')).map(cb => cb.value); }
 

@@ -953,6 +953,12 @@ body {
   width: 8px;
   height: 100%;
 }
+/* Dedicated Horizon Focus Styles */
+.horizon-section.focused {
+  border: 2px solid var(--accent-primary) !important;
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.3) !important;
+  transform: translateY(-4px) !important;
+}
 .horizon-section[data-horizon="hours"]::before { background: #ef4444; }
 .horizon-section[data-horizon="days"]::before { background: #f59e0b; }
 .horizon-section[data-horizon="weeks"]::before { background: #10b981; }
@@ -1184,6 +1190,36 @@ body {
   }
   .calendar-weekdays { grid-template-columns: repeat(7, 1fr); }
   .calendar-grid { grid-template-columns: repeat(7, 1fr); }
+
+  /* Mobile Auth Panel Fix */
+  #auth-panel {
+    padding: var(--space-md) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: var(--space-sm) !important;
+  }
+  
+  #auth-panel h3 {
+    margin: 0 0 var(--space-sm) 0 !important;
+    text-align: center !important;
+  }
+  
+  #auth-panel input {
+    max-width: 100% !important;
+    margin-right: 0 !important;
+    margin-bottom: var(--space-sm) !important;
+  }
+  
+  #auth-panel button {
+    margin-left: 0 !important;
+    margin-bottom: var(--space-sm) !important;
+    width: 100% !important;
+  }
+  
+  #auth-msg {
+    text-align: center !important;
+    margin: var(--space-sm) 0 0 0 !important;
+  }
 }
 
 /* Touch-friendly improvements */
