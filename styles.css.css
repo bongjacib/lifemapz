@@ -1152,7 +1152,7 @@ body {
 /* Mobile Optimizations */
 @media (max-width: 768px) {
   .mobile-header { display: flex; }
-  .sidebar {
+.sidebar {
     position: fixed;
     top: 0;
     left: -100%;
@@ -1181,6 +1181,18 @@ body {
   }
   .modal-actions { flex-direction: column; }
   .cascade-options { grid-template-columns: 1fr; }
+
+  /* Hide auth panels on mobile when user is logged in */
+  #auth-panel[style*="display: block"],
+  #user-panel[style*="display: block"] {
+    display: none !important;
+  }
+  
+  /* Adjust main content margin when auth is hidden */
+  #auth-panel[style*="display: none"] ~ .app-container .main-content,
+  #user-panel[style*="display: block"] ~ .app-container .main-content {
+    margin-top: 0 !important;
+  }
 
   /* Calendar responsive tweaks */
   .calendar-header {
