@@ -765,6 +765,9 @@ class LifeMapzApp {
 
      if (DEBUG) console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
 
+// In the renderHorizonsView method, in the hours section:
+// In the renderHorizonsView method, replace the entire hours section with:
+
 if (h === "hours") {
   // Use HoursCards for the hours view
   if (DEBUG) console.log('Attempting to use HoursCards for hours view');
@@ -812,12 +815,11 @@ if (h === "hours") {
     const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
     if (overrideActive) {
       if (!chip) {
-        // ... chip creation code
+        // ... chip creation code (keep your existing chip code here)
       }
     } else if (chip) chip.remove();
   }
 }
-
   /**
    * Handle reordering of hours tasks
    */
@@ -1092,29 +1094,40 @@ if (h === "hours") {
   }
 
   openTaskModal(taskData = {}) {
-    const isEdit = !!taskData.id;
-    const titleEl = document.getElementById("task-modal-title");
-    const submitText = document.getElementById("task-submit-text");
-    if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
-    if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
+openTaskModal(taskData = {}) {
+  const isEdit = !!taskData.id;
+  const titleEl = document.getElementById("task-modal-title");
+  const submitText = document.getElementById("task-submit-text");
+  if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
+  if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
 
-    this.currentTaskTimeData = { ...taskData };
-    if (isEdit) {
-      document.getElementById("edit-task-id").value = taskData.id;
-      document.getElementById("task-title").value = taskData.title || "";
-      document.getElementById("task-description").value = taskData.description || "";
-      document.getElementById("task-horizon").value = taskData.horizon || "hours";
-      document.getElementById("task-priority").value = taskData.priority || "medium";
-      this.updateTimeSummary();
-    } else {
-      document.getElementById("edit-task-id").value = "";
-      document.getElementById("task-form").reset();
-      const summary = document.getElementById("time-summary");
-      if (summary) summary.textContent = "No time set";
-    }
-    this.updateCascadeOptions();
-    this.openModal("task-modal");
+  this.currentTaskTimeData = { ...taskData };
+  if (isEdit) {
+    document.getElementById("edit-task-id").value = taskData.id;
+    document.getElementById("task-title").value = taskData.title || "";
+    document.getElementById("task-description").value = taskData.description || "";
+    document.getElementById("task-horizon").value = taskData.horizon || "hours";
+    document.getElementById("task-priority").value = taskData.priority || "medium";
+    this.updateTimeSummary();
+    
+    // Set cascade checkboxes for existing task
+    document.querySelectorAll('input[name="cascade"]').forEach(cb => {
+      cb.checked = taskData.cascadesTo && taskData.cascadesTo.includes(cb.value);
+    });
+  } else {
+    document.getElementById("edit-task-id").value = "";
+    document.getElementById("task-form").reset();
+    const summary = document.getElementById("time-summary");
+    if (summary) summary.textContent = "No time set";
+    
+    // Clear all cascade checkboxes for new task
+    document.querySelectorAll('input[name="cascade"]').forEach(cb => {
+      cb.checked = false;
+    });
   }
+  this.updateCascadeOptions();
+  this.openModal("task-modal");
+}
 
   updateCascadeOptions() {
     const horizon = document.getElementById("task-horizon").value;
