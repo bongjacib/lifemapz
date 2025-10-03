@@ -939,7 +939,6 @@ _handleSidebarViewClick(view) {
     return html;
   }
 
-// Replace the existing renderCascadeView method with this version:
 renderCascadeView() {
   const horizons = ["life", "years", "months", "weeks", "days"]; // Removed "hours"
   horizons.forEach(h => {
