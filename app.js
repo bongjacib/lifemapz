@@ -763,58 +763,60 @@ class LifeMapzApp {
         }
       }
 
-      if (DEBUG) console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
+     if (DEBUG) console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
 
-      if (h === "hours") {
-        // Use HoursCards for the hours view
-        if (DEBUG) console.log('Attempting to use HoursCards for hours view');
-        if (window.HoursCards && typeof window.HoursCards.mount === 'function') {
-          try { window.HoursCards.unmount?.(container); } catch {}
-          if (DEBUG) console.log('HoursCards found, mounting...');
-          window.HoursCards.mount(container, tasks, {
-            onReorder: (ids) => this.handleHoursReorder(ids),
-            onEdit: (id) => this.editTask(id),
-            onDelete: (id) => this.deleteTask(id)
-          });
-          if (DEBUG) console.log('HoursCards mount completed');
-        } else {
-          if (DEBUG) console.log('HoursCards not available, using fallback');
-          // Fallback to regular rendering
-          container.innerHTML = tasks.length === 0 ?
-            '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
-            tasks.map(t => this.renderTaskItem(t)).join("");
-
-          // Wire drag & drop for Hours list (per date)
-          this._wireHoursDnD(container, this._todayKey());
-        }
-      } else {
-        // Regular rendering for other horizons
-        container.innerHTML = tasks.length === 0 ?
-          '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
-          tasks.map(t => this.renderTaskItem(t)).join("");
-      }
-
-      // Add the "Back to Today" chip for hours view
-      if (h === "hours") {
-        const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
-        if (header) {
-          let chip = header.querySelector("#hours-override-chip");
-          const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
-          if (overrideActive) {
-            if (!chip) {
-              chip = document.createElement("button");
-              chip.id = "hours-override-chip";
-              chip.type = "button";
-              chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
-              header.appendChild(chip);
-            }
-            chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
-            chip.onclick = () => this.clearHoursDateOverride();
-          } else if (chip) chip.remove();
-        }
+if (h === "hours") {
+  // Use HoursCards for the hours view
+  if (DEBUG) console.log('Attempting to use HoursCards for hours view');
+  
+  if (window.HoursCards && typeof window.HoursCards.mount === 'function') {
+    try { window.HoursCards.unmount?.(container); } catch {}
+    console.log('HoursCards found, mounting with callbacks...');
+    window.HoursCards.mount(container, tasks, {
+      onReorder: (ids) => {
+        console.log('onReorder callback called with:', ids);
+        this.handleHoursReorder(ids);
+      },
+      onEdit: (id) => {
+        console.log('onEdit callback called with:', id);
+        this.editTask(id);
+      },
+      onDelete: (id) => {
+        console.log('onDelete callback called with:', id);
+        this.deleteTask(id);
       }
     });
+    console.log('HoursCards mount completed');
+  } else {
+    if (DEBUG) console.log('HoursCards not available, using fallback');
+    // Fallback to regular rendering
+    container.innerHTML = tasks.length === 0 ?
+      '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
+      tasks.map(t => this.renderTaskItem(t)).join("");
+
+    // Wire drag & drop for Hours list (per date)
+    this._wireHoursDnD(container, this._todayKey());
   }
+} else {
+  // Regular rendering for other horizons
+  container.innerHTML = tasks.length === 0 ?
+    '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
+    tasks.map(t => this.renderTaskItem(t)).join("");
+}
+
+// Add the "Back to Today" chip for hours view
+if (h === "hours") {
+  const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
+  if (header) {
+    let chip = header.querySelector("#hours-override-chip");
+    const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
+    if (overrideActive) {
+      if (!chip) {
+        // ... chip creation code
+      }
+    } else if (chip) chip.remove();
+  }
+}
 
   /**
    * Handle reordering of hours tasks
