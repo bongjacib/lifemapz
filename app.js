@@ -722,49 +722,122 @@ class LifeMapzApp {
   }
 
   renderHorizonsView() {
-    const horizons = ["hours", "days", "weeks", "months", "years", "life"];
-    horizons.forEach(h => {
-      const container = document.getElementById(`${h}-tasks`);
-      if (!container) return;
-      const tasks = this._getTasksForHorizon(h);
-      container.innerHTML = tasks.length === 0 ? '<div class="empty-state">No tasks yet. Click + to add one.</div>' : tasks.map(t => this.renderTaskItem(t)).join("");
-      if (h === "hours") {
-        const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
-        if (header) {
-          let chip = header.querySelector("#hours-override-chip");
-          const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
-          if (overrideActive) {
-            if (!chip) {
-              chip = document.createElement("button");
-              chip.id = "hours-override-chip";
-              chip.type = "button";
-              chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
-              header.appendChild(chip);
-            }
-            chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
-            chip.onclick = () => this.clearHoursDateOverride();
-          } else if (chip) chip.remove();
+  const horizons = ["hours", "days", "weeks", "months", "years", "life"];
+
+  horizons.forEach((h) => {
+    const container = document.getElementById(`${h}-tasks`);
+    if (!container) return;
+
+    let tasks = this._getTasksForHorizon(h);
+
+    if (h === "hours") {
+      // ---- Apply saved per-day order (today or calendar override) ----
+      const dateKey = this._todayKey();
+      const savedOrder = (typeof this.getHoursOrder === "function") ? this.getHoursOrder(dateKey) : [];
+      if (savedOrder && savedOrder.length) {
+        const byId = new Map(tasks.map((t) => [t.id, t]));
+        const ordered = [];
+        savedOrder.forEach((id) => { if (byId.has(id)) { ordered.push(byId.get(id)); byId.delete(id); }});
+        // append new/unsorted tasks
+        for (const t of byId.values()) ordered.push(t);
+        tasks = ordered;
+      }
+
+      // ---- Render Hours with HoursCards if available; else fallback to basic markup + DnD ----
+      if (window.HoursCards && typeof window.HoursCards.mount === "function") {
+        // Let HoursCards render the DOM
+        window.HoursCards.mount(container, tasks, {
+          dateKey,
+          renderTimeInfo: (ts) => this.renderTimeInfo(ts),
+          onEdit: (id) => this.editTask(id),
+          onDelete: (id) => this.deleteTask(id),
+          onReorder: (ids) => {
+            if (typeof this.setHoursOrder === "function") this.setHoursOrder(dateKey, ids);
+            this.saveData(false);
+          },
+        });
+      } else {
+        // Fallback: your existing HTML plus lightweight DnD
+        container.innerHTML =
+          tasks.length === 0
+            ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
+            : tasks.map((t) => this.renderTaskItem(t, { draggable: true })).join("");
+
+        if (window.DnD && typeof window.DnD.bindList === "function" && tasks.length > 0) {
+          window.DnD.bindList(container, {
+            handleSelector: "[data-drag-handle]",
+            getId: (el) => el.dataset.id,
+            onUpdate: (ids) => {
+              if (typeof this.setHoursOrder === "function") this.setHoursOrder(dateKey, ids);
+              this.saveData(false);
+            },
+          });
         }
       }
-    });
-  }
 
-  renderTaskItem(task) {
-    const timeInfo = task.timeSettings ? this.renderTimeInfo(task.timeSettings) : "";
-    return `
-      <div class="task-item" data-id="${task.id}">
-        <div class="task-content">
-          <div class="task-title">${this.escapeHtml(task.title)}</div>
-          ${task.description ? `<div class="task-meta">${this.escapeHtml(task.description)}</div>` : ""}
-          ${timeInfo}
-          ${task.cascadesTo && task.cascadesTo.length > 0 ? `<div class="task-meta"><small>Cascades to: ${task.cascadesTo.join(", ")}</small></div>` : ""}
-        </div>
-        <div class="task-actions">
-          <button class="task-btn" onclick="app.editTask('${task.id}')" title="Edit Task"><i class="fas fa-edit"></i></button>
-          <button class="task-btn" onclick="app.deleteTask('${task.id}')" title="Delete Task"><i class="fas fa-trash"></i></button>
-        </div>
-      </div>`;
-  }
+      // ---- “Viewing: YYYY-MM-DD” chip when hoursDateOverride is active ----
+      const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
+      if (header) {
+        let chip = header.querySelector("#hours-override-chip");
+        const overrideActive =
+          !!this.hoursDateOverride &&
+          this.hoursDateOverride !== this.toInputDate(new Date());
+
+        if (overrideActive) {
+          if (!chip) {
+            chip = document.createElement("button");
+            chip.id = "hours-override-chip";
+            chip.type = "button";
+            chip.style.cssText =
+              "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
+            header.appendChild(chip);
+          }
+          chip.textContent = `Viewing: ${this.hoursDateOverride}`;
+          chip.onclick = () => {
+            this.hoursDateOverride = null;
+            this.renderCurrentView();
+          };
+        } else if (chip) {
+          chip.remove();
+        }
+      }
+    } else {
+      // ---- Non-hours horizons: simple list ----
+      container.innerHTML =
+        tasks.length === 0
+          ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
+          : tasks.map((t) => this.renderTaskItem(t)).join("");
+    }
+  });
+}
+
+
+// Add optional 2nd arg: { draggable = false }
+renderTaskItem(task, { draggable = false } = {}) {
+  const timeInfo = task.timeSettings ? this.renderTimeInfo(task.timeSettings) : "";
+  return `
+    <div class="task-item" data-id="${task.id}" tabindex="0">
+      <div class="task-content">
+        <div class="task-title">${this.escapeHtml(task.title)}</div>
+        ${task.description ? `<div class="task-meta">${this.escapeHtml(task.description)}</div>` : ""}
+        ${timeInfo}
+        ${task.cascadesTo && task.cascadesTo.length > 0
+          ? `<div class="task-meta"><small>Cascades to: ${task.cascadesTo.join(", ")}</small></div>`
+          : ""}
+      </div>
+
+      ${draggable
+        ? `<button class="task-btn drag-handle" data-drag-handle title="Drag to reorder">
+             <i class="fas fa-grip-vertical"></i>
+           </button>`
+        : ""}
+
+      <div class="task-actions">
+        <button class="task-btn" onclick="app.editTask('${task.id}')" title="Edit Task"><i class="fas fa-edit"></i></button>
+        <button class="task-btn" onclick="app.deleteTask('${task.id}')" title="Delete Task"><i class="fas fa-trash"></i></button>
+      </div>
+    </div>`;
+}
 
   renderTimeInfo(ts) {
     let html = `<div class="task-time-info"><i class="fas fa-clock"></i> ${ts.startTime} - ${ts.endTime}`;

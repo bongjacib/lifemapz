@@ -404,6 +404,10 @@ body {
   align-items: center;
   justify-content: center;
 }
+/* Drag handle (Hours draggable cards) */
+.task-item .drag-handle { cursor: grab; }
+.task-item .drag-handle:active { cursor: grabbing; }
+
 .task-btn:hover {
   background: var(--bg-tertiary);
   color: var(--accent-primary);
