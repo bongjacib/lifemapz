@@ -43,7 +43,11 @@
       "description": "Quickly add a task",
       "url": "./?action=new",
       "icons": [
-        { "src": "icons/shortcut-add.png", "sizes": "96x96", "type": "image/png" }
+        {
+          "src": "icons/shortcut-add.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
       ]
     },
     {
@@ -52,7 +56,11 @@
       "description": "Open the Visual Horizons view",
       "url": "./?view=horizons",
       "icons": [
-        { "src": "icons/shortcut-horizons.png", "sizes": "96x96", "type": "image/png" }
+        {
+          "src": "icons/shortcut-horizons.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
       ]
     },
     {
@@ -61,7 +69,11 @@
       "description": "Open the Cascade view",
       "url": "./?view=cascade",
       "icons": [
-        { "src": "icons/shortcut-cascade.png", "sizes": "96x96", "type": "image/png" }
+        {
+          "src": "icons/shortcut-cascade.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
       ]
     },
     {
@@ -70,10 +82,18 @@
       "description": "Open the Calendar view",
       "url": "./?view=calendar",
       "icons": [
-        { "src": "icons/shortcut-calendar.png", "sizes": "96x96", "type": "image/png" }
+        {
+          "src": "icons/shortcut-calendar.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
       ]
     }
   ],
   "categories": ["productivity", "utilities"],
-  "lang": "en-US"
+  "lang": "en-US",
+  "prefer_related_applications": false,
+  "launch_handler": { "client_mode": "navigate-existing" },
+  "handle_links": "preferred",
+  "dir": "auto"
 }

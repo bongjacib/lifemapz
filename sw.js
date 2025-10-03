@@ -1,165 +1,194 @@
-/* LifeMapz Service Worker v3.1.3
-   - Versioned via query param (?v=APP_VERSION) for clean cache rollover
-   - App-shell precache + runtime caching for same-origin static assets
-   - Bypass caching for cross-origin/API (Firebase, Pantry, JSONBin, etc.)
-   - SPA navigation fallback to cached index.html when offline
-   - Immediate activation (skipWaiting + clients.claim)
+/* LifeMapz Service Worker — final
+   - Versioned via query param (?v=APP_VERSION) from app.js
+   - Precache core app shell
+   - SWR for same-origin static assets
+   - Network-first for navigations with offline fallback
+   - Bypass caching for dynamic backends (Pantry/JSONBin/Firebase/etc.)
 */
 
-const VERSION = new URL(self.location).searchParams.get('v') || 'dev';
-const CACHE_PREFIX = 'lifemapz-cache';
-const CACHE_NAME = `${CACHE_PREFIX}-${VERSION}`;
-const STATIC_EXT_RE = /\.(?:js|css|html|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|otf|json|map|webmanifest)$/i;
-
-// Compute scoped URLs so this SW works from subfolders too
-const SCOPE_URL = new URL(self.registration.scope);
-const toScoped = (p) => new URL(p, SCOPE_URL).toString();
-
-// Minimal app shell (best-effort)
-const APP_SHELL = [
-  'index.html',
-  './index.html',
+const SW_VERSION = new URL(self.location).searchParams.get('v') || '1';
+const CACHE_NAME = `lifemapz-static-v${SW_VERSION}`;
+const CORE_ASSETS = [
   './',
-  'styles.css',
-  'manifest.webmanifest',
-  'icons/icon-192.png',
-  'icons/icon-512.png',
-].map(toScoped);
+  './index.html',
+  './styles.css',
+  './app.js',
+  './dnd.js',
+  './HoursCards.js',
+  './manifest.json',
+  // icons (optional; ignore errors if not present)
+  './icons/icon-192.png',
+  './icons/icon-192-maskable.png',
+  './icons/icon-512.png',
+  './icons/icon-512-maskable.png'
+];
 
-// Utility: addAll but ignore failures (missing files shouldn't break install)
-async function addAllSafe(cache, urls) {
-  for (const url of urls) {
-    try {
-      await cache.add(new Request(url, { cache: 'no-cache' }));
-    } catch (_) {
-      // ignore missing assets
-    }
-  }
-}
+// Domains we always bypass (dynamic data / auth)
+const NETWORK_ONLY_HOSTS = new Set([
+  'getpantry.cloud',
+  'api.jsonbin.io',
+  'kvdb.io',
+  'firebase.googleapis.com',
+  'firestore.googleapis.com',
+  'www.googleapis.com',
+  'identitytoolkit.googleapis.com',
+  'securetoken.googleapis.com'
+]);
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
-    (async () => {
-      const cache = await caches.open(CACHE_NAME);
-      await addAllSafe(cache, APP_SHELL);
-    })()
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    try {
+      // Attempt to precache core assets; ignore individual failures
+      await Promise.allSettled(
+        CORE_ASSETS.map((url) => cache.add(new Request(url, { cache: 'reload' })))
+      );
+    } catch (err) {
+      // Non-fatal
+      console.warn('[SW] Precache error:', err);
+    }
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    (async () => {
-      // Purge old versioned caches
-      const names = await caches.keys();
-      await Promise.all(
-        names
-          .filter((n) => n.startsWith(CACHE_PREFIX) && n !== CACHE_NAME)
-          .map((n) => caches.delete(n))
-      );
-      await self.clients.claim();
-    })()
-  );
+  event.waitUntil((async () => {
+    // Clean up old versions
+    const names = await caches.keys();
+    await Promise.all(
+      names.map((n) => {
+        if (n.startsWith('lifemapz-static-v') && n !== CACHE_NAME) {
+          return caches.delete(n);
+        }
+        return Promise.resolve(false);
+      })
+    );
+    await self.clients.claim();
+  })());
 });
 
-// Helper: find a cached index.html for SPA fallback
-async function matchIndex(cache) {
-  const candidates = [
-    toScoped('index.html'),
-    toScoped('./index.html'),
-    toScoped('/index.html'),
-  ];
-  for (const url of candidates) {
-    const res = await cache.match(url, { ignoreSearch: true });
-    if (res) return res;
+self.addEventListener('message', (event) => {
+  const { type } = event.data || {};
+  if (type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  } else if (type === 'CLEAR_CACHE') {
+    event.waitUntil((async () => {
+      const names = await caches.keys();
+      await Promise.all(names.map((n) => caches.delete(n)));
+    })());
   }
-  // As a last resort, return a tiny offline page
-  return new Response(
-    '<!doctype html><meta charset="utf-8"><title>Offline</title><h1>Offline</h1><p>You appear to be offline. Try again once you\'re connected.</p>',
-    { headers: { 'Content-Type': 'text/html; charset=UTF-8' } }
-  );
-}
+});
 
 self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
+  const req = event.request;
 
-  const url = new URL(request.url);
+  // Only handle GET
+  if (req.method !== 'GET') return;
 
-  // Never handle our own SW script
-  if (url.origin === self.location.origin && /\/sw\.js$/i.test(url.pathname)) return;
+  const url = new URL(req.url);
 
-  // Navigation requests: network-first, fallback to cached index for offline SPA
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      (async () => {
-        try {
-          const fresh = await fetch(request);
-          // Optionally keep a copy of index for offline
-          const cache = await caches.open(CACHE_NAME);
-          cache.put(toScoped('index.html'), fresh.clone()).catch(() => {});
-          return fresh;
-        } catch {
-          const cache = await caches.open(CACHE_NAME);
-          return matchIndex(cache);
-        }
-      })()
-    );
+  // Bypass certain dynamic backends completely
+  if (NETWORK_ONLY_HOSTS.has(url.hostname)) {
+    return; // let the request go to network unmodified
+  }
+
+  // Navigations: network-first with fallback to cached index.html (SPA)
+  if (event.request.mode === 'navigate') {
+    event.respondWith(networkFirstNavigate(req));
     return;
   }
 
-  // Only runtime-cache same-origin static assets
-  if (url.origin !== self.location.origin) {
-    // Cross-origin (Firebase, Pantry, JSONBin, etc.) -> passthrough, no cache
+  // Same-origin static assets: stale-while-revalidate
+  if (url.origin === self.location.origin && isStaticAsset(url.pathname)) {
+    event.respondWith(staleWhileRevalidate(req));
     return;
   }
 
-  const isStatic = STATIC_EXT_RE.test(url.pathname);
-  if (!isStatic) {
-    // Likely dynamic or API on same origin -> passthrough
+  // Cross-origin assets (e.g., icon/fonts/css CDNs): stale-while-revalidate
+  if (isLikelyCdn(url)) {
+    event.respondWith(staleWhileRevalidate(req));
     return;
   }
 
-  // Static assets: stale-while-revalidate (cache first, refresh in background)
-  event.respondWith(
-    (async () => {
-      const cache = await caches.open(CACHE_NAME);
-
-      // Try cache (ignore querystrings like ?v=)
-      const cached = await cache.match(request, { ignoreSearch: true });
-      if (cached) {
-        // Revalidate in the background
-        event.waitUntil(
-          (async () => {
-            try {
-              const fresh = await fetch(request, { cache: 'no-cache' });
-              if (fresh && fresh.ok) await cache.put(request, fresh.clone());
-            } catch {
-              // ignore network errors during background refresh
-            }
-          })()
-        );
-        return cached;
-      }
-
-      // Fetch from network and cache
-      try {
-        const fresh = await fetch(request);
-        if (fresh && fresh.ok) await cache.put(request, fresh.clone());
-        return fresh;
-      } catch {
-        // Last-ditch: try any path-only match in cache (ignoring search)
-        const fallback = await cache.match(request, { ignoreSearch: true });
-        return fallback || new Response('', { status: 504, statusText: 'Gateway Timeout' });
-      }
-    })()
-  );
+  // Default: try cache, then network
+  event.respondWith(cacheFirst(req));
 });
 
-// Allow page to trigger skipWaiting if needed
-self.addEventListener('message', (event) => {
-  if (!event.data) return;
-  if (event.data === 'SKIP_WAITING' || (event.data && event.data.type === 'SKIP_WAITING')) {
-    self.skipWaiting();
+/* ------------------ Strategies ------------------ */
+
+async function networkFirstNavigate(request) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const controller = new AbortController();
+    const to = setTimeout(() => controller.abort(), 4000); // 4s timeout
+    const netRes = await fetch(request, { signal: controller.signal });
+    clearTimeout(to);
+    // Optionally cache a copy of successful navigations
+    if (netRes && netRes.ok && netRes.type !== 'opaque') {
+      cache.put(request, netRes.clone());
+    }
+    return netRes;
+  } catch {
+    // Fallback to cached request or index.html (SPA shell)
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    const shell = await cache.match('./index.html');
+    if (shell) return shell;
+    // Last resort: simple offline response
+    return new Response('<h1>Offline</h1><p>Content is unavailable.</p>', {
+      headers: { 'Content-Type': 'text/html; charset=UTF-8' },
+      status: 503
+    });
   }
-});
+}
+
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(request);
+      if (res && res.ok) {
+        cache.put(request, res.clone());
+      }
+      return res;
+    } catch {
+      // Ignore network error, SWR will return cached if present
+      return null;
+    }
+  })();
+  return cached || (await fetchPromise) || fetchPromise; // ensure a Response is returned
+}
+
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  try {
+    const res = await fetch(request);
+    if (res && res.ok) cache.put(request, res.clone());
+    return res;
+  } catch (e) {
+    // If image request fails, return a transparent placeholder
+    if (request.destination === 'image') {
+      return new Response(
+        new Blob([new Uint8Array()], { type: 'image/png' }), { headers: { 'Content-Type': 'image/png' } }
+      );
+    }
+    throw e;
+  }
+}
+
+/* ------------------ Helpers ------------------ */
+
+function isStaticAsset(pathname) {
+  // Adjust as needed; keep broad but safe
+  return /\.(?:css|js|mjs|json|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|otf|map)$/.test(pathname) ||
+         pathname.endsWith('/') ||
+         pathname.endsWith('/index.html');
+}
+
+function isLikelyCdn(url) {
+  // Heuristic for common static CDNs
+  return /(cdnjs|cdn.jsdelivr|unpkg|fonts\.gstatic|fonts\.googleapis|static\.cachefly|cdn\.skypack)\./.test(url.hostname);
+}
