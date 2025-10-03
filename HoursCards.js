@@ -1,4 +1,4 @@
-/*! LifeMapz — Hours view cards with drag + up/down controls - FIXED + DELEGATED + HANDLE-ONLY DND */
+/*! LifeMapz — Hours view cards with STRICT drag boundaries + fixed actions */
 (function (global) {
   'use strict';
 
@@ -22,24 +22,36 @@
   function renderCard(t) {
     return `
       <div class="lmz-card task-item" data-id="${t.id}" draggable="false">
-        <div class="lmz-card-handle" title="Drag to reorder" aria-label="Drag handle"
-             data-drag-handle="1"
-             style="cursor:grab;display:flex;align-items:center;justify-content:center;width:34px;min-width:34px;height:34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-tertiary);">
-          <i class="fas fa-grip-vertical"></i>
+        <!-- DRAG HANDLE ONLY - strict boundaries -->
+        <div class="lmz-card-handle" 
+             title="Drag to reorder" 
+             aria-label="Drag handle"
+             data-drag-handle="true"
+             style="cursor:grab;display:flex;align-items:center;justify-content:center;width:34px;min-width:34px;height:34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-tertiary);user-select:none;touch-action:none;">
+          <i class="fas fa-grip-vertical" style="pointer-events:none;"></i>
         </div>
 
-        <div class="task-content" style="padding-left:8px;">
+        <div class="task-content" style="padding-left:8px;flex:1;">
           <div class="task-title">${escapeHtml(t.title)}</div>
           ${t.description ? `<div class="task-meta">${escapeHtml(t.description)}</div>` : ''}
           ${t.timeSettings ? timeInfo(t.timeSettings) : ''}
           ${t.cascadesTo && t.cascadesTo.length > 0 ? `<div class="task-meta"><small>Cascades to: ${t.cascadesTo.join(', ')}</small></div>` : ''}
         </div>
 
+        <!-- ACTION BUTTONS - non-draggable, strict boundaries -->
         <div class="task-actions" style="display:flex;gap:6px;" draggable="false">
-          <button type="button" class="task-btn lmz-move-up"   draggable="false" title="Move up (Alt+↑)"   data-action="move-up"><i class="fas fa-arrow-up"></i></button>
-          <button type="button" class="task-btn lmz-move-down" draggable="false" title="Move down (Alt+↓)" data-action="move-down"><i class="fas fa-arrow-down"></i></button>
-          <button type="button" class="task-btn lmz-edit"      draggable="false" title="Edit"              data-action="edit"><i class="fas fa-edit"></i></button>
-          <button type="button" class="task-btn lmz-delete"    draggable="false" title="Delete"            data-action="delete"><i class="fas fa-trash"></i></button>
+          <button type="button" class="task-btn lmz-move-up" draggable="false" title="Move up (Alt+↑)" data-action="move-up" style="user-select:none;pointer-events:auto;">
+            <i class="fas fa-arrow-up"></i>
+          </button>
+          <button type="button" class="task-btn lmz-move-down" draggable="false" title="Move down (Alt+↓)" data-action="move-down" style="user-select:none;pointer-events:auto;">
+            <i class="fas fa-arrow-down"></i>
+          </button>
+          <button type="button" class="task-btn lmz-edit" draggable="false" title="Edit" data-action="edit" style="user-select:none;pointer-events:auto;">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button type="button" class="task-btn lmz-delete" draggable="false" title="Delete" data-action="delete" style="user-select:none;pointer-events:auto;">
+            <i class="fas fa-trash"></i>
+          </button>
         </div>
       </div>
     `;
@@ -48,8 +60,6 @@
   const HoursCards = {
     _container: null,
     _onClick: null,
-    _stopDragFromActions: null,
-    _stopTouchDragFromActions: null,
     _sortable: null,
 
     mount(container, tasks, opts = {}) {
@@ -63,10 +73,16 @@
       // Render
       container.innerHTML = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
 
-      // Delegated click handler (CSP-safe)
+      // Delegated click handler - FIXED to properly handle actions
       this._onClick = (e) => {
+        // Prevent drag from triggering on button clicks
+        if (e.target.closest('.lmz-card-handle')) {
+          return; // Let DnD handle this
+        }
+
         const btn = e.target.closest('.task-btn[data-action]');
         if (!btn || !container.contains(btn)) return;
+        
         e.preventDefault();
         e.stopPropagation();
 
@@ -75,6 +91,8 @@
 
         const action = btn.dataset.action;
         const id = card.dataset.id;
+
+        console.log('HoursCards action:', action, 'id:', id);
 
         if (action === 'move-up') {
           const prev = card.previousElementSibling;
@@ -95,29 +113,27 @@
             }
           }
         } else if (action === 'edit') {
-          if (typeof opts.onEdit === 'function') opts.onEdit(id);
+          if (typeof opts.onEdit === 'function') {
+            opts.onEdit(id);
+          } else {
+            console.warn('HoursCards: onEdit callback not provided');
+          }
         } else if (action === 'delete') {
-          if (typeof opts.onDelete === 'function') opts.onDelete(id);
+          if (typeof opts.onDelete === 'function') {
+            opts.onDelete(id);
+          } else {
+            console.warn('HoursCards: onDelete callback not provided');
+          }
         }
       };
+      
       container.addEventListener('click', this._onClick);
 
-      // Guard: never initiate drag from action buttons/area (capture-phase)
-      this._stopDragFromActions = (e) => {
-        if (e.target.closest('.task-actions')) { e.preventDefault(); e.stopPropagation(); }
-      };
-      container.addEventListener('mousedown', this._stopDragFromActions, true);
-
-      this._stopTouchDragFromActions = (e) => {
-        if (e.target.closest('.task-actions')) { e.preventDefault(); e.stopPropagation(); }
-      };
-      container.addEventListener('touchstart', this._stopTouchDragFromActions, { capture: true, passive: false });
-
-      // Enable drag & drop if available (handle-only)
+      // Enable drag & drop with STRICT handle-only behavior
       if (window.DnD && typeof window.DnD.list === 'function') {
         this._sortable = window.DnD.list(container, {
           itemSelector: '.lmz-card',
-          handleSelector: '.lmz-card-handle',
+          handleSelector: '.lmz-card-handle', // ONLY the handle can initiate drag
           onReorder: () => {
             if (typeof opts.onReorder === 'function') {
               const ids = Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
@@ -134,16 +150,6 @@
       if (this._container && this._onClick) {
         this._container.removeEventListener('click', this._onClick);
       }
-      if (this._container && this._stopDragFromActions) {
-        this._container.removeEventListener('mousedown', this._stopDragFromActions, true);
-      }
-      if (this._container && this._stopTouchDragFromActions) {
-        this._container.removeEventListener('touchstart', this._stopTouchDragFromActions, { capture: true });
-      }
-
-      this._onClick = null;
-      this._stopDragFromActions = null;
-      this._stopTouchDragFromActions = null;
 
       if (this._sortable && typeof this._sortable.destroy === 'function') {
         this._sortable.destroy();
@@ -156,5 +162,5 @@
   };
 
   global.HoursCards = HoursCards;
-  console.log('HoursCards loaded (fixed, delegated, handle-only drag, buttons non-draggable)');
+  console.log('HoursCards loaded (strict drag boundaries, fixed actions)');
 })(window);
