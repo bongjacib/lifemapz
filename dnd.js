@@ -1,5 +1,6 @@
 /* Lightweight drag & drop list helper (mouse, touch, keyboard)
    Exposes: window.DnD.list(container, { itemSelector, handleSelector, onReorder })
+   v1.1.0 — STRICT handle-only start (no fallback), never preventDefault unless dragging
 */
 (function (root) {
   function list(container, {
@@ -22,12 +23,15 @@
     }
 
     function onPointerDown(e) {
-      const handle = e.target.closest(handleSelector) || e.target.closest(itemSelector);
+      // STRICT: only begin drag if the pointer is on the handle
+      const handle = e.target.closest(handleSelector);
       if (!handle) return;
+
       dragEl = handle.closest(itemSelector);
       if (!dragEl) return;
 
-      e.preventDefault();
+      // Begin dragging
+      if (e.cancelable) e.preventDefault();
 
       const pointY = e.touches ? e.touches[0].clientY : e.clientY;
       const rect = dragEl.getBoundingClientRect();
@@ -67,33 +71,40 @@
         if (pointY < mid) { target = sib; before = true; break; }
         target = sib; before = false;
       }
-      if (target) (before ? target.before(placeholder) : target.after(placeholder));
-      else el.appendChild(placeholder);
+
+      if (!target) el.appendChild(placeholder);
+      else if (before) el.insertBefore(placeholder, target);
+      else target.after(placeholder);
     }
 
-    function onPointerUp() {
+    function onPointerUp(e) {
       if (!dragEl) return;
+
+      // finalize
+      placeholder.replaceWith(dragEl);
       dragEl.classList.remove("dragging");
       dragEl.style.cssText = "";
-      placeholder.replaceWith(dragEl);
+      const endIndex = indexOf(dragEl);
 
-      const newIndex = indexOf(dragEl);
-      const ids = items().map(n => n.dataset.id);
-      dragEl = null; placeholder = null;
-
-      if (onReorder && newIndex !== startIndex && startIndex > -1) {
-        onReorder({ from: startIndex, to: newIndex, ids });
-      }
+      // cleanup
+      placeholder = null;
+      dragEl = null;
 
       document.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerup", onPointerUp);
       document.removeEventListener("touchmove", onPointerMove);
       document.removeEventListener("touchend", onPointerUp);
+
+      if (typeof onReorder === "function" && startIndex !== endIndex && startIndex !== -1 && endIndex !== -1) {
+        onReorder({ from: startIndex, to: endIndex, ids: items().map(n => n.dataset.id) });
+      }
+      startIndex = -1;
     }
 
-    // keyboard (Alt+↑ / Alt+↓)
+    // Keyboard support (unchanged)
     el.addEventListener("keydown", (e) => {
-      if (!(e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown"))) return;
+      if (!(e.target && e.target.closest(itemSelector))) return;
+      if (!(e.key === "ArrowUp" || e.key === "ArrowDown")) return;
       const row = e.target.closest(itemSelector);
       if (!row) return;
       e.preventDefault();

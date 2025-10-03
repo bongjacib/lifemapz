@@ -73,9 +73,13 @@
       // Render
       container.innerHTML = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
 
-      // FIXED: Proper delegated click handler for action buttons
+      // Delegated click handler - IMPROVED VERSION
       this._onClick = (e) => {
-        // Only handle clicks on action buttons, NOT the drag handle
+        // Prevent drag from triggering on button clicks
+        if (e.target.closest('.lmz-card-handle')) {
+          return; // Let DnD handle this
+        }
+
         const btn = e.target.closest('.task-btn[data-action]');
         if (!btn || !container.contains(btn)) return;
         
@@ -90,6 +94,7 @@
 
         console.log('HoursCards action:', action, 'id:', id);
 
+        // Direct method calls instead of relying on opts callbacks
         if (action === 'move-up') {
           const prev = card.previousElementSibling;
           if (prev && prev.classList.contains('lmz-card')) {
@@ -109,19 +114,29 @@
             }
           }
         } else if (action === 'edit') {
-          if (typeof opts.onEdit === 'function') {
+          // DIRECT call to app.editTask instead of relying on callback
+          if (window.app && typeof window.app.editTask === 'function') {
+            window.app.editTask(id);
+          } else if (typeof opts.onEdit === 'function') {
             opts.onEdit(id);
-          } else {
-            console.warn('HoursCards: onEdit callback not provided');
           }
         } else if (action === 'delete') {
-          if (typeof opts.onDelete === 'function') {
+          // DIRECT call to app.deleteTask instead of relying on callback
+          if (window.app && typeof window.app.deleteTask === 'function') {
+            window.app.deleteTask(id);
+          } else if (typeof opts.onDelete === 'function') {
             opts.onDelete(id);
-          } else {
-            console.warn('HoursCards: onDelete callback not provided');
           }
         }
       };
+      
+      // Prevent DnD from starting when pressing action buttons (capture phase)
+      container.addEventListener('pointerdown', (ev) => {
+        if (ev.target.closest('.task-btn')) { ev.stopPropagation(); }
+      }, true);
+      container.addEventListener('touchstart', (ev) => {
+        if (ev.target.closest('.task-btn')) { ev.stopPropagation(); }
+      }, { capture: true, passive: true });
       
       container.addEventListener('click', this._onClick);
 
