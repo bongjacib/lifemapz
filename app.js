@@ -1127,7 +1127,7 @@ class LifeMapzApp {
       const summary = document.getElementById("time-summary");
       if (summary) summary.textContent = "No time set";
       
-      // Clear all cascade checkboxes for new task
+      // CRITICAL: Clear all cascade checkboxes for new task
       document.querySelectorAll('input[name="cascade"]').forEach(cb => {
         cb.checked = false;
       });
@@ -1150,11 +1150,13 @@ class LifeMapzApp {
         const targetIndex = horizons.indexOf(cb.value);
         cb.disabled = targetIndex <= currentIndex;
         
-        // FIX: Don't auto-check any checkboxes for new tasks
-        if (!this.currentTaskTimeData?.id) { // New task
+        // FIX: NEVER auto-check any checkboxes
+        // Only maintain existing checked state if editing, otherwise uncheck all
+        const isEdit = !!this.currentTaskTimeData?.id;
+        if (!isEdit) {
           cb.checked = false;
         }
-        // For existing tasks, the checked state will be set by openTaskModal
+        // For existing tasks, the checked state is already set by openTaskModal
       });
     } else {
       cascadeGroup.style.display = "none";
