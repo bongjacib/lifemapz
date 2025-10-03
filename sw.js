@@ -190,5 +190,5 @@ function isStaticAsset(pathname) {
 
 function isLikelyCdn(url) {
   // Heuristic for common static CDNs
-  return /(cdnjs|cdn.jsdelivr|unpkg|fonts\.gstatic|fonts\.googleapis|static\.cachefly|cdn\.skypack)\./.test(url.hostname);
+  return /(cdnjs|cdn\.jsdelivr|unpkg|fonts\.gstatic|fonts\.googleapis|static\.cachefly|cdn\.skypack)\./.test(url.hostname);
 }

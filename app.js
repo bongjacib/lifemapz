@@ -6,14 +6,16 @@
    - AUTO_LINK_CLOUD: persist/recover session under users/{uid}/app/lifemapz with opt-out
    - Status badge reflects Cloud vs Account sync
    - Added missing modal methods for sync and data management
-   - ✅ Hours view now shows *today-only* items (no past spillover) — respects calendar-selected day
-   - ✅ Added Calendar view (read-only month grid)
-   - ✅ Hours cards: supports drag + keyboard reordering (via HoursCards.js or DnD fallback)
-   - ✅ Calendar cell items truncated to first 12 characters
-   - 🛠️ FIX: Adding to Hours always sets horizon + date; Hours tasks get default times if missing
+   - ✅ Hours view now shows *today-only* items (no past spillover)
+   - ✅ Added Calendar view (read-only month grid) under Views > Calendar
+   - ✨ Calendar task lines truncated to 12 chars for clean squares
+   - ✨ Month label opens month picker; day click → Hours for that day
+   - ✨ Hours shows "Back to Today" chip when viewing a specific date
+   - ✨ "+" in Hours pre-fills the selected day for new tasks
 */
 
 const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.3";
+/** If true, store/read cloud session id in Firestore so devices auto-join after login */
 const AUTO_LINK_CLOUD = true;
 
 /* --------------------- Firebase --------------------- */
@@ -312,7 +314,6 @@ class LifeMapzApp {
     setTimeout(() => this.showNotification(`LifeMapz v${APP_VERSION} is ready!`, "success"), 600);
   }
 
-  /* -------- Runtime UI text tweaks -------- */
   _runtimeTextTweaks() {
     document.querySelectorAll(".sidebar-section h3").forEach(h3 => {
       if (h3.textContent.trim().toUpperCase() === "VERKS") h3.textContent = "VIEWS";
@@ -327,7 +328,6 @@ class LifeMapzApp {
     if (cascadeHours && /visual\s+horizons/i.test(cascadeHours.textContent)) cascadeHours.textContent = "Hours";
   }
 
-  /* -------- Service Worker -------- */
   setupServiceWorker() {
     if ("serviceWorker" in navigator) {
       const register = () =>
@@ -348,13 +348,12 @@ class LifeMapzApp {
     }
   }
 
-  /* -------- Cloud Sync -------- */
   async initCloudSync() {
     const syncConfig = this.loadSyncConfig();
     this.updateSyncUI();
     if (syncConfig && syncConfig.enabled && syncConfig.sessionId) {
       try { await this.enableCloudSync(syncConfig.sessionId, { quiet: true, reconnect: true }); }
-      catch { this.disableCloudSync({ silent: true }); }
+      catch (error) { this.disableCloudSync({ silent: true }); }
     } else {
       this.syncEnabled = false;
       this.updateSyncUI();
@@ -376,7 +375,7 @@ class LifeMapzApp {
       if (AUTO_LINK_CLOUD && auth.currentUser && this.cloudSync.sessionId) await this._setAutoLinkState(true, this.cloudSync.sessionId);
       this.updateSyncUI();
       if (!quiet) this.showNotification(reconnect ? "Cloud sync reconnected!" : "Cloud sync enabled!", "success");
-    } catch {
+    } catch (error) {
       if (!quiet) this.showNotification("Cloud sync unavailable. Using local storage.", "warning");
       this.disableCloudSync({ silent: quiet });
       const u = auth.currentUser;
@@ -463,7 +462,6 @@ class LifeMapzApp {
     } catch { return { cloudAutoLink: undefined, cloudSessionId: undefined }; }
   }
 
-  /* -------- Theme -------- */
   loadTheme() { const saved = localStorage.getItem("lifemapz-theme"); return saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
   applyTheme() { document.body.setAttribute("data-theme", this.currentTheme); }
   toggleTheme() {
@@ -473,7 +471,6 @@ class LifeMapzApp {
     this.showNotification(`${this.currentTheme === "dark" ? "Dark" : "Light"} mode enabled`, "success");
   }
 
-  /* -------- Data model -------- */
   loadData() { const saved = localStorage.getItem("lifemapz-data"); return saved ? JSON.parse(saved) : this.getDefaultData(); }
   getDefaultData() { return { version: APP_VERSION, tasks: [], lastSaved: new Date().toISOString() }; }
 
@@ -490,7 +487,6 @@ class LifeMapzApp {
     }
   }
 
-  /* -------- Firebase Account Sync -------- */
   enableFirebaseSync(uid) {
     if (this.syncEnabled) return;
     const docRef = db.collection("users").doc(uid).collection("app").doc("lifemapz");
@@ -529,7 +525,6 @@ class LifeMapzApp {
     finally { this.firebaseSync.writing = false; }
   }
 
-  /* -------- Auth & UI Events -------- */
   bindEvents() {
     const emailEl = document.getElementById("email");
     const passEl = document.getElementById("password");
@@ -628,7 +623,6 @@ class LifeMapzApp {
     }
   }
 
-  /* -------- Time modal events -------- */
   setupTimeModalEvents() {
     this.ensureDatePicker();
     document.querySelectorAll(".repeat-option").forEach(btn => {
@@ -664,7 +658,6 @@ class LifeMapzApp {
     return dateEl;
   }
 
-  /* -------- Views -------- */
   switchView(viewName) {
     if (!viewName || viewName === this.currentView) return;
     document.querySelectorAll(".sidebar-item").forEach(i => i.classList.remove("active"));
@@ -675,7 +668,6 @@ class LifeMapzApp {
     const titles = { horizons: "Visual Horizons", cascade: "Cascade Flow", calendar: "Calendar View" };
     const titleEl = document.getElementById("current-view-title");
     if (titleEl) titleEl.textContent = titles[viewName] || viewName;
-    this.updateDateDisplay();
     this.renderCurrentView();
     if (window.innerWidth <= 768) this.toggleMobileMenu(false);
   }
@@ -687,13 +679,11 @@ class LifeMapzApp {
 
   _formatNiceDate(key) { try { const d = new Date(key); return d.toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric", year:"numeric" }); } catch { return key; } }
   _truncate(text, n=12) { const s = String(text || ""); return s.length > n ? s.slice(0,n) + "…" : s; }
-
   clearHoursDateOverride() {
     this.hoursDateOverride = null; this.updateDateDisplay(); this.switchView("horizons");
     document.querySelector('.horizon-section[data-horizon="hours"]')?.scrollIntoView({ behavior:"smooth", block:"start" });
     this.renderCurrentView();
   }
-
   _openMonthPicker() {
     const input = document.createElement("input");
     input.type = "month";
@@ -733,90 +723,12 @@ class LifeMapzApp {
 
   renderHorizonsView() {
     const horizons = ["hours", "days", "weeks", "months", "years", "life"];
-
-    horizons.forEach((h) => {
+    horizons.forEach(h => {
       const container = document.getElementById(`${h}-tasks`);
       if (!container) return;
-
-      let tasks = this._getTasksForHorizon(h);
-
+      const tasks = this._getTasksForHorizon(h);
+      container.innerHTML = tasks.length === 0 ? '<div class="empty-state">No tasks yet. Click + to add one.</div>' : tasks.map(t => this.renderTaskItem(t)).join("");
       if (h === "hours") {
-        // Apply saved per-day order
-        const dateKey = this._todayKey();
-        const savedOrder = (typeof this.getHoursOrder === "function") ? this.getHoursOrder(dateKey) : [];
-        if (savedOrder && savedOrder.length) {
-          const byId = new Map(tasks.map((t) => [t.id, t]));
-          const ordered = [];
-          savedOrder.forEach((id) => { if (byId.has(id)) { ordered.push(byId.get(id)); byId.delete(id); }});
-          for (const t of byId.values()) ordered.push(t);
-          tasks = ordered;
-        }
-
-        // Prefer HoursCards, fall back to our markup
-        if (window.HoursCards && typeof window.HoursCards.mount === "function") {
-          try {
-            const arity = window.HoursCards.mount.length;
-            if (arity >= 3) {
-              window.HoursCards.mount(container, tasks, {
-                dateKey,
-                renderTimeInfo: (ts) => this.renderTimeInfo(ts),
-                onEdit:   (id) => this.editTask(id),
-                onDelete: (id) => this.deleteTask(id),
-                onReorder: (ids) => { this.setHoursOrder?.(dateKey, ids); this.saveData(false); }
-              });
-            } else {
-              container.innerHTML =
-                tasks.length === 0
-                  ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
-                  : tasks.map((t) => this.renderTaskItem(t, { draggable: true })).join("");
-              window.HoursCards.mount(container, {
-                onReorder: (ids) => { this.setHoursOrder?.(dateKey, ids); this.saveData(false); }
-              });
-            }
-          } catch (e) {
-            console.warn("HoursCards.mount error; fallback:", e);
-            container.innerHTML =
-              tasks.length === 0
-                ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
-                : tasks.map((t) => this.renderTaskItem(t, { draggable: true })).join("");
-          }
-        } else {
-          container.innerHTML =
-            tasks.length === 0
-              ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
-              : tasks.map((t) => this.renderTaskItem(t, { draggable: true })).join("");
-        }
-
-        // Bind DnD (if available)
-        try {
-          container.addEventListener("dragstart", (e) => e.preventDefault(), { passive: false });
-          container.querySelectorAll("[draggable='true']").forEach(el => el.setAttribute("draggable","false"));
-
-          const itemSelector =
-            container.querySelector(".task-item") ? ".task-item" :
-            container.querySelector("[data-id]")   ? "[data-id]" : ".task-item";
-
-          const handleSelector =
-            container.querySelector("[data-drag-handle]") ? "[data-drag-handle]" :
-            container.querySelector("[data-handle]")      ? "[data-handle]" :
-            container.querySelector(".hc-handle")         ? ".hc-handle" :
-            container.querySelector(".drag-handle")       ? ".drag-handle" :
-            "[data-drag-handle]";
-
-          if (window.DnD && typeof window.DnD.bindList === "function" &&
-              container.querySelector(itemSelector)) {
-            window.DnD.bindList(container, {
-              itemSelector,
-              handleSelector,
-              getId: (el) => el.dataset.id,
-              onUpdate: (ids) => { this.setHoursOrder?.(dateKey, ids); this.saveData(false); }
-            });
-          }
-        } catch (e) {
-          console.warn("DnD wiring skipped:", e);
-        }
-
-        // “Viewing: YYYY-MM-DD” chip
         const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
         if (header) {
           let chip = header.querySelector("#hours-override-chip");
@@ -829,42 +741,24 @@ class LifeMapzApp {
               chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
               header.appendChild(chip);
             }
-            chip.textContent = `Viewing: ${this.hoursDateOverride}`;
-            chip.onclick = () => { this.hoursDateOverride = null; this.renderCurrentView(); };
-          } else if (chip) {
-            chip.remove();
-          }
+            chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
+            chip.onclick = () => this.clearHoursDateOverride();
+          } else if (chip) chip.remove();
         }
-      } else {
-        // Other horizons: simple
-        container.innerHTML =
-          tasks.length === 0
-            ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
-            : tasks.map((t) => this.renderTaskItem(t)).join("");
       }
     });
   }
 
-  // Add optional 2nd arg: { draggable = false }
-  renderTaskItem(task, { draggable = false } = {}) {
+  renderTaskItem(task) {
     const timeInfo = task.timeSettings ? this.renderTimeInfo(task.timeSettings) : "";
     return `
-      <div class="task-item" data-id="${task.id}" tabindex="0">
+      <div class="task-item" data-id="${task.id}">
         <div class="task-content">
           <div class="task-title">${this.escapeHtml(task.title)}</div>
           ${task.description ? `<div class="task-meta">${this.escapeHtml(task.description)}</div>` : ""}
           ${timeInfo}
-          ${task.cascadesTo && task.cascadesTo.length > 0
-            ? `<div class="task-meta"><small>Cascades to: ${task.cascadesTo.join(", ")}</small></div>`
-            : ""}
+          ${task.cascadesTo && task.cascadesTo.length > 0 ? `<div class="task-meta"><small>Cascades to: ${task.cascadesTo.join(", ")}</small></div>` : ""}
         </div>
-
-        ${draggable
-          ? `<button class="task-btn drag-handle" data-drag-handle title="Drag to reorder">
-               <i class="fas fa-grip-vertical"></i>
-             </button>`
-          : ""}
-
         <div class="task-actions">
           <button class="task-btn" onclick="app.editTask('${task.id}')" title="Edit Task"><i class="fas fa-edit"></i></button>
           <button class="task-btn" onclick="app.deleteTask('${task.id}')" title="Delete Task"><i class="fas fa-trash"></i></button>
@@ -883,7 +777,6 @@ class LifeMapzApp {
     return html;
   }
 
-  /* -------- Cascade View -------- */
   renderCascadeView() {
     const horizons = ["life", "years", "months", "weeks", "days", "hours"];
     horizons.forEach(h => {
@@ -900,7 +793,6 @@ class LifeMapzApp {
     });
   }
 
-  /* -------- Calendar View -------- */
   _ensureCalendarScaffold() {
     const view = document.getElementById("calendar-view");
     if (!view) return null;
@@ -999,7 +891,6 @@ class LifeMapzApp {
     });
   }
 
-  /* -------- Time modal helpers -------- */
   openTimeModal() {
     const dateEl = this.ensureDatePicker();
     const now = new Date();
@@ -1087,54 +978,30 @@ class LifeMapzApp {
     list.innerHTML=items.join("");
   }
 
-  /* -------- Task modals -------- */
- openTaskModal(taskData = {}) {
-  const isEdit = !!taskData.id;
+  openTaskModal(taskData = {}) {
+    const isEdit = !!taskData.id;
+    const titleEl = document.getElementById("task-modal-title");
+    const submitText = document.getElementById("task-submit-text");
+    if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
+    if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
 
-  // Header text
-  const titleEl = document.getElementById("task-modal-title");
-  const submitText = document.getElementById("task-submit-text");
-  if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
-  if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
-
-  // Keep a copy for the time modal
-  this.currentTaskTimeData = { ...taskData };
-
-  if (isEdit) {
-    // ---- Edit existing ----
-    document.getElementById("edit-task-id").value = taskData.id;
-    document.getElementById("task-title").value = taskData.title || "";
-    document.getElementById("task-description").value = taskData.description || "";
-    document.getElementById("task-horizon").value = taskData.horizon || "hours";
-    document.getElementById("task-priority").value = taskData.priority || "medium";
-    this.updateTimeSummary();
-  } else {
-    // ---- NEW: Respect presets passed from addToHorizon() ----
-    document.getElementById("task-form").reset();
-    document.getElementById("edit-task-id").value = "";
-
-    // Prefill from taskData when provided (e.g., { horizon:'hours', timeSettings:{...} })
-    if (taskData.title) document.getElementById("task-title").value = taskData.title;
-    if (taskData.description) document.getElementById("task-description").value = taskData.description;
-
-    // Default to 'hours' when opening from Hours "+" (taskData.horizon will be 'hours')
-    document.getElementById("task-horizon").value = taskData.horizon || "hours";
-    document.getElementById("task-priority").value = taskData.priority || "medium";
-
-    // Time summary
-    const summary = document.getElementById("time-summary");
-    if (taskData.timeSettings) {
-      this.currentTaskTimeData.timeSettings = taskData.timeSettings;
+    this.currentTaskTimeData = { ...taskData };
+    if (isEdit) {
+      document.getElementById("edit-task-id").value = taskData.id;
+      document.getElementById("task-title").value = taskData.title || "";
+      document.getElementById("task-description").value = taskData.description || "";
+      document.getElementById("task-horizon").value = taskData.horizon || "hours";
+      document.getElementById("task-priority").value = taskData.priority || "medium";
       this.updateTimeSummary();
-    } else if (summary) {
-      summary.textContent = "No time set";
+    } else {
+      document.getElementById("edit-task-id").value = "";
+      document.getElementById("task-form").reset();
+      const summary = document.getElementById("time-summary");
+      if (summary) summary.textContent = "No time set";
     }
+    this.updateCascadeOptions();
+    this.openModal("task-modal");
   }
-
-  // Update cascade UI and show modal
-  this.updateCascadeOptions();
-  this.openModal("task-modal");
-}
 
   updateCascadeOptions() {
     const horizon = document.getElementById("task-horizon").value;
@@ -1175,52 +1042,32 @@ class LifeMapzApp {
   saveTask() {
     const form = document.getElementById("task-form");
     if (!form.checkValidity()) { form.reportValidity(); return; }
-
     const isEdit = !!document.getElementById("edit-task-id").value;
     const taskId = isEdit ? document.getElementById("edit-task-id").value : this.generateId();
-
-    let timeSettings = this.currentTaskTimeData?.timeSettings || null;
-    const horizon = document.getElementById("task-horizon").value;
-
-    // 🛠️ Guardrail: Hours must have a date (and reasonable defaults) to show up
-    if (horizon === "hours") {
-      const dateKey = (timeSettings && timeSettings.date) ? timeSettings.date : this._todayKey();
-      timeSettings = {
-        date: dateKey,
-        startTime: timeSettings?.startTime || "09:00",
-        endTime:   timeSettings?.endTime   || "10:00",
-        repeat:    timeSettings?.repeat    || "none",
-        weekdays:  timeSettings?.weekdays  || []
-      };
-    }
-
     const task = {
       id: taskId,
       title: document.getElementById("task-title").value.trim(),
       description: document.getElementById("task-description").value.trim(),
-      horizon,
+      horizon: document.getElementById("task-horizon").value,
       priority: document.getElementById("task-priority").value,
       completed: false,
       createdAt: isEdit ? (this.data.tasks.find(t => t.id === taskId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
       lastModified: new Date().toISOString(),
       cascadesTo: this.getCascadeSelections(),
-      timeSettings
+      timeSettings: this.currentTaskTimeData?.timeSettings || null
     };
-
     if (isEdit) {
       const idx = this.data.tasks.findIndex(t => t.id === taskId);
       if (idx !== -1) this.data.tasks[idx] = task;
     } else {
       this.data.tasks.push(task);
     }
-
     this.saveData();
     this.closeModal("task-modal");
     this.renderCurrentView();
     this.showNotification(`Task ${isEdit ? "updated" : "added"} successfully`, "success");
   }
 
-  /* -------- Data management -------- */
   exportData() {
     const dataStr = JSON.stringify(this.data, null, 2);
     const dataBlob = new Blob([dataStr], { type: "application/json" });
@@ -1265,7 +1112,6 @@ class LifeMapzApp {
     }
   }
 
-  /* -------- UI helpers -------- */
   showNotification(message, type = "info") {
     const toast = document.createElement("div");
     toast.textContent = message;
@@ -1289,11 +1135,6 @@ class LifeMapzApp {
   generateId(){ return Date.now().toString(36) + Math.random().toString(36).substr(2,5); }
   escapeHtml(text){ const div=document.createElement("div"); div.textContent=text; return div.innerHTML; }
   updateDateDisplay(){ const base=this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); const el=document.getElementById("current-date"); if (el) el.textContent=base.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" }); }
-
-  /* ---- Hours order persistence ---- */
-  _hoursOrderKey(dateKey){ return `lifemapz-hours-order-${dateKey}`; }
-  getHoursOrder(dateKey){ try { return JSON.parse(localStorage.getItem(this._hoursOrderKey(dateKey))) || []; } catch { return []; } }
-  setHoursOrder(dateKey, ids){ localStorage.setItem(this._hoursOrderKey(dateKey), JSON.stringify(ids || [])); }
 }
 
 /* --------------------- Boot --------------------- */
