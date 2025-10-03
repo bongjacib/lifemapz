@@ -721,7 +721,7 @@ class LifeMapzApp {
     else if (this.currentView === "calendar") this.renderCalendarView();
   }
 
-  renderHorizonsView() {
+renderHorizonsView() {
   const horizons = ["hours", "days", "weeks", "months", "years", "life"];
 
   horizons.forEach((h) => {
@@ -731,51 +731,89 @@ class LifeMapzApp {
     let tasks = this._getTasksForHorizon(h);
 
     if (h === "hours") {
-      // ---- Apply saved per-day order (today or calendar override) ----
+      // ---- Apply saved per-day order ----
       const dateKey = this._todayKey();
       const savedOrder = (typeof this.getHoursOrder === "function") ? this.getHoursOrder(dateKey) : [];
       if (savedOrder && savedOrder.length) {
         const byId = new Map(tasks.map((t) => [t.id, t]));
         const ordered = [];
         savedOrder.forEach((id) => { if (byId.has(id)) { ordered.push(byId.get(id)); byId.delete(id); }});
-        // append new/unsorted tasks
         for (const t of byId.values()) ordered.push(t);
         tasks = ordered;
       }
 
-      // ---- Render Hours with HoursCards if available; else fallback to basic markup + DnD ----
+      // ---- Render Hours (prefer HoursCards if present) ----
       if (window.HoursCards && typeof window.HoursCards.mount === "function") {
-        // Let HoursCards render the DOM
-        window.HoursCards.mount(container, tasks, {
-          dateKey,
-          renderTimeInfo: (ts) => this.renderTimeInfo(ts),
-          onEdit: (id) => this.editTask(id),
-          onDelete: (id) => this.deleteTask(id),
-          onReorder: (ids) => {
-            if (typeof this.setHoursOrder === "function") this.setHoursOrder(dateKey, ids);
-            this.saveData(false);
-          },
-        });
+        // Some versions of HoursCards take (container, tasks, options),
+        // others take (container, options). We’ll detect and call safely.
+        try {
+          const arity = window.HoursCards.mount.length; // # of declared params
+          if (arity >= 3) {
+            window.HoursCards.mount(container, tasks, {
+              dateKey,
+              renderTimeInfo: (ts) => this.renderTimeInfo(ts),
+              onEdit:   (id) => this.editTask(id),
+              onDelete: (id) => this.deleteTask(id),
+              onReorder: (ids) => { this.setHoursOrder?.(dateKey, ids); this.saveData(false); },
+            });
+          } else {
+            // render ourselves, then ask HoursCards to just bind
+            container.innerHTML =
+              tasks.length === 0
+                ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
+                : tasks.map((t) => this.renderTaskItem(t, { draggable: true })).join("");
+            window.HoursCards.mount(container, {
+              onReorder: (ids) => { this.setHoursOrder?.(dateKey, ids); this.saveData(false); }
+            });
+          }
+        } catch (e) {
+          console.warn("HoursCards.mount threw; falling back to inline HTML + DnD:", e);
+          container.innerHTML =
+            tasks.length === 0
+              ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
+              : tasks.map((t) => this.renderTaskItem(t, { draggable: true })).join("");
+        }
       } else {
-        // Fallback: your existing HTML plus lightweight DnD
+        // Fallback: render our own cards (with handle)
         container.innerHTML =
           tasks.length === 0
             ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
             : tasks.map((t) => this.renderTaskItem(t, { draggable: true })).join("");
-
-        if (window.DnD && typeof window.DnD.bindList === "function" && tasks.length > 0) {
-          window.DnD.bindList(container, {
-            handleSelector: "[data-drag-handle]",
-            getId: (el) => el.dataset.id,
-            onUpdate: (ids) => {
-              if (typeof this.setHoursOrder === "function") this.setHoursOrder(dateKey, ids);
-              this.saveData(false);
-            },
-          });
-        }
       }
 
-      // ---- “Viewing: YYYY-MM-DD” chip when hoursDateOverride is active ----
+      // ---- Bind lightweight DnD no matter who rendered the cards ----
+      try {
+        // Disable native HTML5 drag
+        container.addEventListener("dragstart", (e) => e.preventDefault(), { passive: false });
+        container.querySelectorAll("[draggable='true']").forEach(el => el.setAttribute("draggable","false"));
+
+        // Auto-detect selectors present in the DOM
+        const itemSelector =
+          container.querySelector(".task-item") ? ".task-item" :
+          container.querySelector("[data-id]")   ? "[data-id]" :
+          ".task-item"; // sensible default
+
+        const handleSelector =
+          container.querySelector("[data-drag-handle]") ? "[data-drag-handle]" :
+          container.querySelector("[data-handle]")      ? "[data-handle]" :
+          container.querySelector(".hc-handle")         ? ".hc-handle" :
+          container.querySelector(".drag-handle")       ? ".drag-handle" :
+          "[data-drag-handle]"; // default
+
+        if (window.DnD && typeof window.DnD.bindList === "function" &&
+            container.querySelector(itemSelector)) {
+          window.DnD.bindList(container, {
+            itemSelector,
+            handleSelector,
+            getId: (el) => el.dataset.id,
+            onUpdate: (ids) => { this.setHoursOrder?.(dateKey, ids); this.saveData(false); }
+          });
+        }
+      } catch (e) {
+        console.warn("DnD wiring skipped:", e);
+      }
+
+      // ---- “Viewing: YYYY-MM-DD” chip ----
       const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
       if (header) {
         let chip = header.querySelector("#hours-override-chip");
@@ -793,10 +831,7 @@ class LifeMapzApp {
             header.appendChild(chip);
           }
           chip.textContent = `Viewing: ${this.hoursDateOverride}`;
-          chip.onclick = () => {
-            this.hoursDateOverride = null;
-            this.renderCurrentView();
-          };
+          chip.onclick = () => { this.hoursDateOverride = null; this.renderCurrentView(); };
         } else if (chip) {
           chip.remove();
         }
@@ -810,6 +845,7 @@ class LifeMapzApp {
     }
   });
 }
+
 
 
 // Add optional 2nd arg: { draggable = false }

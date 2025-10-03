@@ -413,6 +413,18 @@ body {
   color: var(--accent-primary);
 }
 
+/* Prevent native drag/text selection in Hours list */
+#hours-tasks, #hours-tasks * { -webkit-user-drag: none; }
+#hours-tasks .task-item { user-select: none; }
+#hours-tasks .drag-handle,
+#hours-tasks [data-drag-handle],
+#hours-tasks [data-handle],
+#hours-tasks .hc-handle { cursor: grab; user-select: none; touch-action: none; }
+#hours-tasks .drag-handle:active,
+#hours-tasks [data-drag-handle]:active,
+#hours-tasks [data-handle]:active,
+#hours-tasks .hc-handle:active { cursor: grabbing; }
+
 /* Section headers */
 .section-header h4 {
   font-size: 1.2rem;
