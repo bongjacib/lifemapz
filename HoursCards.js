@@ -73,13 +73,9 @@
       // Render
       container.innerHTML = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
 
-      // Delegated click handler - FIXED to properly handle actions
+      // FIXED: Proper delegated click handler for action buttons
       this._onClick = (e) => {
-        // Prevent drag from triggering on button clicks
-        if (e.target.closest('.lmz-card-handle')) {
-          return; // Let DnD handle this
-        }
-
+        // Only handle clicks on action buttons, NOT the drag handle
         const btn = e.target.closest('.task-btn[data-action]');
         if (!btn || !container.contains(btn)) return;
         
