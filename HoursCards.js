@@ -1,4 +1,4 @@
-/*! LifeMapz — Hours view cards with drag + up/down controls */
+/*! LifeMapz — Hours view cards with drag + up/down controls - INLINE ONCLICK VERSION */
 (function (global) {
   'use strict';
 
@@ -41,71 +41,90 @@
         </div>
 
         <div class="task-actions" style="display:flex;gap:6px;">
-          <button class="task-btn lmz-move-up" title="Move up (Alt+↑)" data-action="move-up" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-arrow-up"></i></button>
-          <button class="task-btn lmz-move-down" title="Move down (Alt+↓)" data-action="move-down" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-arrow-down"></i></button>
-          <button class="task-btn lmz-edit" title="Edit" data-action="edit" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-edit"></i></button>
-          <button class="task-btn lmz-delete" title="Delete" data-action="delete" onclick="window.HoursCards._handleButtonClick(this)"><i class="fas fa-trash"></i></button>
+          <button class="task-btn lmz-move-up" title="Move up (Alt+↑)" data-action="move-up" onclick="window.HoursCards.handleButtonClick(this)"><i class="fas fa-arrow-up"></i></button>
+          <button class="task-btn lmz-move-down" title="Move down (Alt+↓)" data-action="move-down" onclick="window.HoursCards.handleButtonClick(this)"><i class="fas fa-arrow-down"></i></button>
+          <button class="task-btn lmz-edit" title="Edit" data-action="edit" onclick="window.HoursCards.handleButtonClick(this)"><i class="fas fa-edit"></i></button>
+          <button class="task-btn lmz-delete" title="Delete" data-action="delete" onclick="window.HoursCards.handleButtonClick(this)"><i class="fas fa-trash"></i></button>
         </div>
       </div>
     `;
   }
 
+  // Global callback storage
+  const HoursCardsCallbacks = {
+    onReorder: null,
+    onEdit: null,
+    onDelete: null,
+    container: null
+  };
+
+  // Global click handler - this will always be available
+  function handleButtonClick(button) {
+    console.log('HOURSCARDS BUTTON CLICKED:', button.dataset.action);
+    
+    if (!HoursCardsCallbacks.container) {
+      console.error('HoursCards: No container registered');
+      return;
+    }
+
+    const card = button.closest('.lmz-card');
+    if (!card) {
+      console.error('HoursCards: No card found for button');
+      return;
+    }
+
+    const id = card.dataset.id;
+    const action = button.dataset.action;
+
+    console.log('Processing action:', action, 'for task:', id);
+
+    switch(action) {
+      case 'move-up':
+        console.log('Moving task up');
+        const prev = card.previousElementSibling;
+        if (prev && prev.classList.contains('lmz-card')) {
+          HoursCardsCallbacks.container.insertBefore(card, prev);
+          if (typeof HoursCardsCallbacks.onReorder === 'function') {
+            const ids = Array.from(HoursCardsCallbacks.container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+            HoursCardsCallbacks.onReorder(ids);
+          }
+        }
+        break;
+
+      case 'move-down':
+        console.log('Moving task down');
+        const next = card.nextElementSibling;
+        if (next && next.classList.contains('lmz-card')) {
+          HoursCardsCallbacks.container.insertBefore(next, card);
+          if (typeof HoursCardsCallbacks.onReorder === 'function') {
+            const ids = Array.from(HoursCardsCallbacks.container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+            HoursCardsCallbacks.onReorder(ids);
+          }
+        }
+        break;
+
+      case 'edit':
+        console.log('Editing task:', id);
+        if (typeof HoursCardsCallbacks.onEdit === 'function') {
+          HoursCardsCallbacks.onEdit(id);
+        } else {
+          console.error('HoursCards: onEdit callback not available');
+        }
+        break;
+
+      case 'delete':
+        console.log('Deleting task:', id);
+        if (typeof HoursCardsCallbacks.onDelete === 'function') {
+          HoursCardsCallbacks.onDelete(id);
+        } else {
+          console.error('HoursCards: onDelete callback not available');
+        }
+        break;
+    }
+  }
+
   const HoursCards = {
-    _currentCallbacks: null,
-    _currentContainer: null,
-
-    _handleButtonClick(button) {
-      console.log('ONCLICK HANDLER:', button.dataset.action);
-      if (!HoursCards._currentCallbacks) {
-        console.error('No callbacks registered');
-        return;
-      }
-
-      const card = button.closest('.lmz-card');
-      if (!card) {
-        console.error('No card found');
-        return;
-      }
-
-      const id = card.dataset.id;
-      const action = button.dataset.action;
-
-      switch(action) {
-        case 'move-up':
-          const prev = card.previousElementSibling;
-          if (prev && prev.classList.contains('lmz-card')) {
-            HoursCards._currentContainer.insertBefore(card, prev);
-            if (typeof HoursCards._currentCallbacks.onReorder === 'function') {
-              const ids = Array.from(HoursCards._currentContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
-              HoursCards._currentCallbacks.onReorder(ids);
-            }
-          }
-          break;
-
-        case 'move-down':
-          const next = card.nextElementSibling;
-          if (next && next.classList.contains('lmz-card')) {
-            HoursCards._currentContainer.insertBefore(next, card);
-            if (typeof HoursCards._currentCallbacks.onReorder === 'function') {
-              const ids = Array.from(HoursCards._currentContainer.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
-              HoursCards._currentCallbacks.onReorder(ids);
-            }
-          }
-          break;
-
-        case 'edit':
-          if (typeof HoursCards._currentCallbacks.onEdit === 'function') {
-            HoursCards._currentCallbacks.onEdit(id);
-          }
-          break;
-
-        case 'delete':
-          if (typeof HoursCards._currentCallbacks.onDelete === 'function') {
-            HoursCards._currentCallbacks.onDelete(id);
-          }
-          break;
-      }
-    },
+    handleButtonClick: handleButtonClick,
 
     mount(container, tasks, opts = {}) {
       if (!container) {
@@ -118,18 +137,22 @@
         tasks = [];
       }
       
-      console.log('HoursCards: mounting', tasks.length, 'tasks');
+      console.log('HoursCards: mounting', tasks.length, 'tasks with callbacks:', {
+        hasOnReorder: typeof opts.onReorder === 'function',
+        hasOnEdit: typeof opts.onEdit === 'function',
+        hasOnDelete: typeof opts.onDelete === 'function'
+      });
       
-      // Store callbacks and container for onclick handlers
-      HoursCards._currentCallbacks = {
-        onReorder: opts.onReorder,
-        onEdit: opts.onEdit,
-        onDelete: opts.onDelete
-      };
-      HoursCards._currentContainer = container;
+      // Store callbacks and container globally
+      HoursCardsCallbacks.onReorder = opts.onReorder || null;
+      HoursCardsCallbacks.onEdit = opts.onEdit || null;
+      HoursCardsCallbacks.onDelete = opts.onDelete || null;
+      HoursCardsCallbacks.container = container;
       
       const html = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
       container.innerHTML = html;
+
+      console.log('HoursCards: buttons should have onclick handlers now');
 
       // Enable drag & drop
       if (window.DnD && typeof window.DnD.list === 'function') {
@@ -151,8 +174,10 @@
     },
 
     destroy() {
-      HoursCards._currentCallbacks = null;
-      HoursCards._currentContainer = null;
+      HoursCardsCallbacks.onReorder = null;
+      HoursCardsCallbacks.onEdit = null;
+      HoursCardsCallbacks.onDelete = null;
+      HoursCardsCallbacks.container = null;
       if (HoursCards._sortable && typeof HoursCards._sortable.destroy === 'function') {
         HoursCards._sortable.destroy();
         HoursCards._sortable = null;
@@ -161,4 +186,5 @@
   };
 
   global.HoursCards = HoursCards;
+  console.log('HoursCards loaded with inline onclick support');
 })(window);
