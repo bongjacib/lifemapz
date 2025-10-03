@@ -302,6 +302,7 @@ class LifeMapzApp {
     this.syncEnabled = false;
     this.calendar = { current: new Date() };
     this.hoursDateOverride = null;
+    this.weeklyStartDate = null;
     this.init();
   }
 
@@ -716,19 +717,13 @@ switchView(viewName) {
     horizons: "Visual Horizons", 
     cascade: "Cascade Flow", 
     calendar: "Calendar View",
-    weekly: "Weekly Planner" // Add this line
+    weekly: "Weekly Planner"
   };
   const titleEl = document.getElementById("current-view-title");
   if (titleEl) titleEl.textContent = titles[viewName] || viewName;
   this.renderCurrentView();
   if (window.innerWidth <= 768) this.toggleMobileMenu(false);
-}switchView(viewName) {
-  if (!viewName || viewName === this.currentView) return;
-  document.querySelectorAll(".sidebar-item").forEach(i => i.classList.remove("active"));
-  document.querySelector(`[data-view="${viewName}"]`)?.classList.add("active");
-  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-  document.getElementById(`${viewName}-view`)?.classList.add("active");
-  this.currentView = viewName;
+}
   
   const titles = { 
     horizons: "Visual Horizons", 
