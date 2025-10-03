@@ -724,18 +724,6 @@ switchView(viewName) {
   this.renderCurrentView();
   if (window.innerWidth <= 768) this.toggleMobileMenu(false);
 }
-  
-  const titles = { 
-    horizons: "Visual Horizons", 
-    cascade: "Cascade Flow", 
-    calendar: "Calendar View",
-    weekly: "Weekly Planner" // Add this line
-  };
-  const titleEl = document.getElementById("current-view-title");
-  if (titleEl) titleEl.textContent = titles[viewName] || viewName;
-  this.renderCurrentView();
-  if (window.innerWidth <= 768) this.toggleMobileMenu(false);
-}
 
   _toDateOnly(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
   _isSameDay(a,b){ return this._toDateOnly(a).getTime()===this._toDateOnly(b).getTime(); }
@@ -1344,16 +1332,23 @@ updateCascadeOptions() {
   closeAllModals(){ document.querySelectorAll(".modal").forEach(m => m.style.display="none"); document.body.style.overflow=""; }
 
   toggleMobileMenu(show){ const sidebar=document.getElementById("main-sidebar"); if (sidebar){ if (typeof show==="boolean") sidebar.classList.toggle("active", show); else sidebar.classList.toggle("active"); } }
+
   generateId(){
     if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
     return Date.now().toString(36) + Math.random().toString(36).slice(2,8);
   }
-  escapeHtml(text){ const div=document.createElement("div"); div.textContent=text; return div.innerHTML; }
-  updateDateDisplay(){ const base=this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); const el=document.getElementById("current-date"); if (el) el.textContent=base.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" }); }
-  return Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+  
+  escapeHtml(text){ 
+    const div=document.createElement("div"); 
+    div.textContent=text; 
+    return div.innerHTML; 
   }
-  escapeHtml(text){ const div=document.createElement("div"); div.textContent=text; return div.innerHTML; }
-  updateDateDisplay(){ const base=this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); const el=document.getElementById("current-date"); if (el) el.textContent=base.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" }); }
+  
+  updateDateDisplay(){ 
+    const base=this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); 
+    const el=document.getElementById("current-date"); 
+    if (el) el.textContent=base.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" }); 
+  }
 
   /* ================================
      Weekly Planner Methods
