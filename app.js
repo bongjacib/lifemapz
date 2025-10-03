@@ -299,7 +299,29 @@ class LifeMapzApp {
     this.hoursDateOverride = null;
     this.init();
   }
-
+/**
+ * Get tasks filtered for a specific horizon
+ */
+_getTasksForHorizon(horizon) {
+  const tasks = [];
+  const todayKey = this._todayKey();
+  
+  for (const task of this.data.tasks) {
+    if (task.completed) continue;
+    
+    const belongs = task.horizon === horizon || (task.cascadesTo && task.cascadesTo.includes(horizon));
+    if (!belongs) continue;
+    
+    if (horizon === "hours") {
+      const d = task?.timeSettings?.date || null;
+      if (!d || d !== todayKey) continue;
+    }
+    
+    tasks.push(task);
+  }
+  
+  return tasks;
+}
   init() {
     this.applyTheme();
     this._runtimeTextTweaks();
@@ -725,20 +747,25 @@ renderHorizonsView() {
   const horizons = ["hours", "days", "weeks", "months", "years", "life"];
   horizons.forEach(h => {
     const container = document.getElementById(`${h}-tasks`);
-    if (!container) return;
+    if (!container) {
+      console.warn(`Container not found for ${h}`);
+      return;
+    }
     
     const tasks = this._getTasksForHorizon(h);
     console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
     
     if (h === "hours") {
       // Use HoursCards for the hours view
+      console.log('Attempting to use HoursCards for hours view');
       if (window.HoursCards && typeof window.HoursCards.mount === 'function') {
-        console.log('Using HoursCards for hours view');
+        console.log('HoursCards found, mounting...');
         window.HoursCards.mount(container, tasks, {
           onReorder: (ids) => this.handleHoursReorder(ids),
           onEdit: (id) => this.editTask(id),
           onDelete: (id) => this.deleteTask(id)
         });
+        console.log('HoursCards mount completed');
       } else {
         console.log('HoursCards not available, using fallback');
         // Fallback to regular rendering
@@ -779,10 +806,11 @@ renderHorizonsView() {
  * Handle reordering of hours tasks
  */
 handleHoursReorder(ids) {
-  console.log('Hours reorder:', ids);
-  // For now, just show a notification
-  // In a full implementation, you would update the task order in your data model
+  console.log('Hours reorder triggered with IDs:', ids);
   this.showNotification("Tasks reordered", "success");
+  
+  // Optional: Implement actual reordering logic here
+  // This would update the task order in your data model
 }
 
   renderTaskItem(task) {
