@@ -6,21 +6,20 @@
    - Bypass caching for dynamic backends (Pantry/JSONBin/Firebase/etc.)
 */
 
-const SW_VERSION = new URL(self.location).searchParams.get('v') || '1';
-const CACHE_NAME = `lifemapz-static-v${SW_VERSION}`;
-const CORE_ASSETS = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './dnd.js',
-  './HoursCards.js',
-  './manifest.json',
-  // icons (optional; ignore errors if not present)
-  './icons/icon-192.png',
-  './icons/icon-192-maskable.png',
-  './icons/icon-512.png',
-  './icons/icon-512-maskable.png'
+// LifeMapz - Service Worker v3.1.6 (cache bump for hotfix)
+const CACHE_NAME = "lifemapz-v3.1.6";
+
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./styles.css?v=3.1.6",
+  "./dnd.js?v=3.1.6",
+  "./HoursCards.js?v=3.1.6",
+  "./app.js?v=3.1.6",
+  "./app-hotfix.js?v=3.1.6",
+  "./manifest.json",
+  "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
+  "https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js",
 ];
 
 // Domains we always bypass (dynamic data / auth)
