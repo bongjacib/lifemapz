@@ -715,7 +715,7 @@ switchView(viewName) {
   
   const titles = { 
     horizons: "Visual Horizons", 
-    cascade: "Cascade Flow", 
+    cascade: "Cascades", 
     calendar: "Calendar View",
     weekly: "Weekly Planner"
   };
