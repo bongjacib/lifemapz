@@ -323,7 +323,7 @@
         <div class="sidebar-subtitle">Visual Horizons</div>
       </div>
 
-      <!-- GOALS SECTION -->
+   <!-- GOALS SECTION -->
 <div class="sidebar-section">
   <div class="sidebar-item active" data-view="horizons">
     <i class="fas fa-clock"></i>
@@ -333,7 +333,8 @@
     <i class="fas fa-calendar-day"></i>
     <span>Daily Routines</span>
   </div>
-  <div class="sidebar-item" data-view="weeks">
+  <!-- WEEKLY PLANNER (7-day layout) -->
+  <div class="sidebar-item" data-view="weekly">
     <i class="fas fa-calendar-week"></i>
     <span>Weekly Planner</span>
   </div>
@@ -348,6 +349,19 @@
   <div class="sidebar-item" data-view="life">
     <i class="fas fa-infinity"></i>
     <span>Life Goals</span>
+  </div>
+</div>
+
+<div class="sidebar-section">
+  <h3>VIEWS</h3>
+  <div class="sidebar-item" data-view="cascade">
+    <i class="fas fa-stream"></i>
+    <span>Cascade View</span>
+  </div>
+  <!-- REMOVED: Weekly Planner from here -->
+  <div class="sidebar-item" data-view="calendar">
+    <i class="fas fa-calendar"></i>
+    <span>Calendar View</span>
   </div>
 </div>
 
@@ -434,17 +448,7 @@
       <div class="tasks-list" id="days-tasks"></div>
     </section>
 
-    <section class="horizon-section" data-horizon="weeks">
-      <div class="section-header">
-        <h4><i class="fas fa-calendar-week"></i> Weekly Planner</h4>
-        <button class="section-add-btn" onclick="app.addToHorizon('weeks')">
-          <i class="fas fa-plus"></i>
-        </button>
-      </div>
-      <div class="tasks-list" id="weeks-tasks"></div>
-    </section>
-
-    <section class="horizon-section" data-horizon="months">
+     <section class="horizon-section" data-horizon="months">
       <div class="section-header">
         <h4><i class="fas fa-calendar-alt"></i> Monthly Goals</h4>
         <button class="section-add-btn" onclick="app.addToHorizon('months')">
