@@ -89,8 +89,8 @@
           <select id="task-horizon" required onchange="app.updateCascadeOptions()">
             <option value="">Select a horizon...</option>
             <option value="hours">Hours</option>
-            <option value="days">Daily Goals</option>
-            <option value="weeks">Weekly Goals</option>
+            <option value="days">Daily Routines</option>
+            <option value="weeks">Weekly Planner</option>
             <option value="months">Monthly Goals</option>
             <option value="years">Yearly Goals</option>
             <option value="life">Life Goals</option>
@@ -408,101 +408,103 @@
         </div>
       </header>
 
-      <!-- Visual Horizons View -->
-      <div id="horizons-view" class="view active">
-        <div class="cascading-horizons">
-          <section class="horizon-section" data-horizon="hours">
-            <div class="section-header">
-              <h4><i class="fas fa-clock"></i> Hours</h4>
-              <button class="section-add-btn" onclick="app.addToHorizon('hours')">
-                <i class="fas fa-plus"></i>
-              </button>
-            </div>
-            <div class="tasks-list" id="hours-tasks"></div>
-          </section>
-
-          <section class="horizon-section" data-horizon="days">
-            <div class="section-header">
-              <h4><i class="fas fa-calendar-day"></i> Daily Goals</h4>
-              <button class="section-add-btn" onclick="app.addToHorizon('days')">
-                <i class="fas fa-plus"></i>
-              </button>
-            </div>
-            <div class="tasks-list" id="days-tasks"></div>
-          </section>
-
-          <section class="horizon-section" data-horizon="weeks">
-            <div class="section-header">
-              <h4><i class="fas fa-calendar-week"></i> Weekly Goals</h4>
-              <button class="section-add-btn" onclick="app.addToHorizon('weeks')">
-                <i class="fas fa-plus"></i>
-              </button>
-            </div>
-            <div class="tasks-list" id="weeks-tasks"></div>
-          </section>
-
-          <section class="horizon-section" data-horizon="months">
-            <div class="section-header">
-              <h4><i class="fas fa-calendar-alt"></i> Monthly Goals</h4>
-              <button class="section-add-btn" onclick="app.addToHorizon('months')">
-                <i class="fas fa-plus"></i>
-              </button>
-            </div>
-            <div class="tasks-list" id="months-tasks"></div>
-          </section>
-
-          <section class="horizon-section" data-horizon="years">
-            <div class="section-header">
-              <h4><i class="fas fa-flag"></i> Yearly Goals</h4>
-              <button class="section-add-btn" onclick="app.addToHorizon('years')">
-                <i class="fas fa-plus"></i>
-              </button>
-            </div>
-            <div class="tasks-list" id="years-tasks"></div>
-          </section>
-
-          <section class="horizon-section" data-horizon="life">
-            <div class="section-header">
-              <h4><i class="fas fa-infinity"></i> Life Goals</h4>
-              <button class="section-add-btn" onclick="app.addToHorizon('life')">
-                <i class="fas fa-plus"></i>
-              </button>
-            </div>
-            <div class="tasks-list" id="life-tasks"></div>
-          </section>
-        </div>
+<!-- Visual Horizons View -->
+<div id="horizons-view" class="view active">
+  <div class="cascading-horizons">
+    <section class="horizon-section" data-horizon="hours">
+      <div class="section-header">
+        <h4><i class="fas fa-clock"></i> Hours</h4>
+        <button class="section-add-btn" onclick="app.addToHorizon('hours')">
+          <i class="fas fa-plus"></i>
+        </button>
       </div>
+      <div class="tasks-list" id="hours-tasks"></div>
+    </section>
 
-      <!-- Cascade View -->
-      <div id="cascade-view" class="view">
-        <div class="cascade-visualization">
-          <h3>Task Cascade Flow</h3>
-          <div class="cascade-flow">
-            <div class="cascade-level" data-level="life">
-              <h4>Life Goals</h4>
-              <div class="cascade-tasks" id="cascade-life"></div>
-            </div>
-            <div class="cascade-arrow">↓</div>
-            <div class="cascade-level" data-level="years">
-              <h4>Yearly Goals</h4>
-              <div class="cascade-tasks" id="cascade-years"></div>
-            </div>
-            <div class="cascade-arrow">↓</div>
-            <div class="cascade-level" data-level="months">
-              <h4>Monthly Goals</h4>
-              <div class="cascade-tasks" id="cascade-months"></div>
-            </div>
-            <div class="cascade-arrow">↓</div>
-            <div class="cascade-level" data-level="weeks">
-              <h4>Weekly Goals</h4>
-              <div class="cascade-tasks" id="cascade-weeks"></div>
-            </div>
-            <div class="cascade-arrow">↓</div>
-            <div class="cascade-level" data-level="days">
-              <h4>Daily Goals</h4>
-              <div class="cascade-tasks" id="cascade-days"></div>
-            </div>
-          </div>
+    <section class="horizon-section" data-horizon="days">
+      <div class="section-header">
+        <h4><i class="fas fa-calendar-day"></i> Daily Routines</h4>
+        <button class="section-add-btn" onclick="app.addToHorizon('days')">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+      <div class="tasks-list" id="days-tasks"></div>
+    </section>
+
+    <section class="horizon-section" data-horizon="weeks">
+      <div class="section-header">
+        <h4><i class="fas fa-calendar-week"></i> Weekly Planner</h4>
+        <button class="section-add-btn" onclick="app.addToHorizon('weeks')">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+      <div class="tasks-list" id="weeks-tasks"></div>
+    </section>
+
+    <section class="horizon-section" data-horizon="months">
+      <div class="section-header">
+        <h4><i class="fas fa-calendar-alt"></i> Monthly Goals</h4>
+        <button class="section-add-btn" onclick="app.addToHorizon('months')">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+      <div class="tasks-list" id="months-tasks"></div>
+    </section>
+
+    <section class="horizon-section" data-horizon="years">
+      <div class="section-header">
+        <h4><i class="fas fa-flag"></i> Yearly Goals</h4>
+        <button class="section-add-btn" onclick="app.addToHorizon('years')">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+      <div class="tasks-list" id="years-tasks"></div>
+    </section>
+
+    <section class="horizon-section" data-horizon="life">
+      <div class="section-header">
+        <h4><i class="fas fa-infinity"></i> Life Goals</h4>
+        <button class="section-add-btn" onclick="app.addToHorizon('life')">
+          <i class="fas fa-plus"></i>
+        </button>
+      </div>
+      <div class="tasks-list" id="life-tasks"></div>
+    </section>
+  </div>
+</div>
+
+     <!-- Cascade View -->
+<div id="cascade-view" class="view">
+  <div class="cascade-visualization">
+    <h3>Task Cascade Flow</h3>
+    <div class="cascade-flow">
+      <div class="cascade-level" data-level="life">
+        <h4>Life Goals</h4>
+        <div class="cascade-tasks" id="cascade-life"></div>
+      </div>
+      <div class="cascade-arrow">↓</div>
+      <div class="cascade-level" data-level="years">
+        <h4>Yearly Goals</h4>
+        <div class="cascade-tasks" id="cascade-years"></div>
+      </div>
+      <div class="cascade-arrow">↓</div>
+      <div class="cascade-level" data-level="months">
+        <h4>Monthly Goals</h4>
+        <div class="cascade-tasks" id="cascade-months"></div>
+      </div>
+      <div class="cascade-arrow">↓</div>
+      <div class="cascade-level" data-level="weeks">
+        <h4>Weekly Planner</h4>
+        <div class="cascade-tasks" id="cascade-weeks"></div>
+      </div>
+      <div class="cascade-arrow">↓</div>
+      <div class="cascade-level" data-level="days">
+        <h4>Daily Routines</h4>
+        <div class="cascade-tasks" id="cascade-days"></div>
+      </div>
+    </div>
+  </div>
+</div>
      
       <!-- NEW: Calendar View (read-only month grid; content scaffolded by app.js) -->
       <div id="calendar-view" class="view">
