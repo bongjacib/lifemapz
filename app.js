@@ -721,33 +721,69 @@ class LifeMapzApp {
     else if (this.currentView === "calendar") this.renderCalendarView();
   }
 
-  renderHorizonsView() {
-    const horizons = ["hours", "days", "weeks", "months", "years", "life"];
-    horizons.forEach(h => {
-      const container = document.getElementById(`${h}-tasks`);
-      if (!container) return;
-      const tasks = this._getTasksForHorizon(h);
-      container.innerHTML = tasks.length === 0 ? '<div class="empty-state">No tasks yet. Click + to add one.</div>' : tasks.map(t => this.renderTaskItem(t)).join("");
-      if (h === "hours") {
-        const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
-        if (header) {
-          let chip = header.querySelector("#hours-override-chip");
-          const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
-          if (overrideActive) {
-            if (!chip) {
-              chip = document.createElement("button");
-              chip.id = "hours-override-chip";
-              chip.type = "button";
-              chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
-              header.appendChild(chip);
-            }
-            chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
-            chip.onclick = () => this.clearHoursDateOverride();
-          } else if (chip) chip.remove();
-        }
+renderHorizonsView() {
+  const horizons = ["hours", "days", "weeks", "months", "years", "life"];
+  horizons.forEach(h => {
+    const container = document.getElementById(`${h}-tasks`);
+    if (!container) return;
+    
+    const tasks = this._getTasksForHorizon(h);
+    console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
+    
+    if (h === "hours") {
+      // Use HoursCards for the hours view
+      if (window.HoursCards && typeof window.HoursCards.mount === 'function') {
+        console.log('Using HoursCards for hours view');
+        window.HoursCards.mount(container, tasks, {
+          onReorder: (ids) => this.handleHoursReorder(ids),
+          onEdit: (id) => this.editTask(id),
+          onDelete: (id) => this.deleteTask(id)
+        });
+      } else {
+        console.log('HoursCards not available, using fallback');
+        // Fallback to regular rendering
+        container.innerHTML = tasks.length === 0 ? 
+          '<div class="empty-state">No tasks yet. Click + to add one.</div>' : 
+          tasks.map(t => this.renderTaskItem(t)).join("");
       }
-    });
-  }
+    } else {
+      // Regular rendering for other horizons
+      container.innerHTML = tasks.length === 0 ? 
+        '<div class="empty-state">No tasks yet. Click + to add one.</div>' : 
+        tasks.map(t => this.renderTaskItem(t)).join("");
+    }
+    
+    // Add the "Back to Today" chip for hours view
+    if (h === "hours") {
+      const header = document.querySelector('.horizon-section[data-horizon="hours"] .section-header');
+      if (header) {
+        let chip = header.querySelector("#hours-override-chip");
+        const overrideActive = !!this.hoursDateOverride && this.hoursDateOverride !== this.toInputDate(new Date());
+        if (overrideActive) {
+          if (!chip) {
+            chip = document.createElement("button");
+            chip.id = "hours-override-chip";
+            chip.type = "button";
+            chip.style.cssText = "margin-left:auto;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#ede9fe;color:#4c1d95;font-size:.85rem;font-weight:600;cursor:pointer;";
+            header.appendChild(chip);
+          }
+          chip.textContent = `Viewing ${this._formatNiceDate(this.hoursDateOverride)} — Back to Today`;
+          chip.onclick = () => this.clearHoursDateOverride();
+        } else if (chip) chip.remove();
+      }
+    }
+  });
+}
+
+/**
+ * Handle reordering of hours tasks
+ */
+handleHoursReorder(ids) {
+  console.log('Hours reorder:', ids);
+  // For now, just show a notification
+  // In a full implementation, you would update the task order in your data model
+  this.showNotification("Tasks reordered", "success");
+}
 
   renderTaskItem(task) {
     const timeInfo = task.timeSettings ? this.renderTimeInfo(task.timeSettings) : "";

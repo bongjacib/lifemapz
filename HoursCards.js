@@ -1,5 +1,7 @@
 /*! LifeMapz — Hours view cards with drag + up/down controls */
 (function (global) {
+  'use strict';
+
   function escapeHtml(txt) {
     const d = document.createElement('div');
     d.textContent = txt == null ? '' : String(txt);
@@ -91,8 +93,18 @@
      * @param {Object} opts - { onReorder(ids), onEdit(id), onDelete(id) }
      */
     mount(container, tasks, opts = {}) {
-      if (!container) return;
-      if (!Array.isArray(tasks)) tasks = [];
+      if (!container) {
+        console.warn('HoursCards: container not found');
+        return;
+      }
+      
+      if (!Array.isArray(tasks)) {
+        console.warn('HoursCards: tasks must be an array');
+        tasks = [];
+      }
+      
+      console.log('HoursCards: mounting', tasks.length, 'tasks');
+      
       const html = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
       container.innerHTML = html;
 
@@ -100,21 +112,49 @@
       bindCardControls(container, opts.onReorder, opts.onEdit, opts.onDelete);
 
       // Enable drag & drop (desktop) + Alt+Arrow keyboard fallback
-      // FIXED: Use window.DnD.list instead of window.DND.sortable
       if (window.DnD && typeof window.DnD.list === 'function') {
+        console.log('HoursCards: enabling DnD');
         HoursCards._sortable = window.DnD.list(container, {
           itemSelector: '.lmz-card',
           handleSelector: '.lmz-card-handle',
           onReorder: (data) => { 
+            console.log('HoursCards: reorder', data);
             if (typeof opts.onReorder === 'function') {
               const ids = Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
               opts.onReorder(ids);
             }
           }
         });
+      } else {
+        console.warn('HoursCards: DnD not available');
       }
+      
+      return HoursCards;
+    },
+
+    /**
+     * Clean up and destroy the HoursCards instance
+     */
+    destroy() {
+      if (HoursCards._sortable && typeof HoursCards._sortable.destroy === 'function') {
+        HoursCards._sortable.destroy();
+        HoursCards._sortable = null;
+      }
+    },
+    
+    /**
+     * Update tasks in an already mounted container
+     */
+    update(container, tasks, opts = {}) {
+      this.destroy();
+      return this.mount(container, tasks, opts);
     }
   };
 
-  global.HoursCards = HoursCards;
-})(window);
+  // Export to global scope
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = HoursCards;
+  } else {
+    global.HoursCards = HoursCards;
+  }
+})(typeof window !== 'undefined' ? window : this);
