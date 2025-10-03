@@ -704,19 +704,43 @@ _handleSidebarViewClick(view) {
     return dateEl;
   }
 
-  switchView(viewName) {
-    if (!viewName || viewName === this.currentView) return;
-    document.querySelectorAll(".sidebar-item").forEach(i => i.classList.remove("active"));
-    document.querySelector(`[data-view="${viewName}"]`)?.classList.add("active");
-    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-    document.getElementById(`${viewName}-view`)?.classList.add("active");
-    this.currentView = viewName;
-    const titles = { horizons: "Visual Horizons", cascade: "Cascade Flow", calendar: "Calendar View" };
-    const titleEl = document.getElementById("current-view-title");
-    if (titleEl) titleEl.textContent = titles[viewName] || viewName;
-    this.renderCurrentView();
-    if (window.innerWidth <= 768) this.toggleMobileMenu(false);
-  }
+switchView(viewName) {
+  if (!viewName || viewName === this.currentView) return;
+  document.querySelectorAll(".sidebar-item").forEach(i => i.classList.remove("active"));
+  document.querySelector(`[data-view="${viewName}"]`)?.classList.add("active");
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById(`${viewName}-view`)?.classList.add("active");
+  this.currentView = viewName;
+  
+  const titles = { 
+    horizons: "Visual Horizons", 
+    cascade: "Cascade Flow", 
+    calendar: "Calendar View",
+    weekly: "Weekly Planner" // Add this line
+  };
+  const titleEl = document.getElementById("current-view-title");
+  if (titleEl) titleEl.textContent = titles[viewName] || viewName;
+  this.renderCurrentView();
+  if (window.innerWidth <= 768) this.toggleMobileMenu(false);
+}switchView(viewName) {
+  if (!viewName || viewName === this.currentView) return;
+  document.querySelectorAll(".sidebar-item").forEach(i => i.classList.remove("active"));
+  document.querySelector(`[data-view="${viewName}"]`)?.classList.add("active");
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById(`${viewName}-view`)?.classList.add("active");
+  this.currentView = viewName;
+  
+  const titles = { 
+    horizons: "Visual Horizons", 
+    cascade: "Cascade Flow", 
+    calendar: "Calendar View",
+    weekly: "Weekly Planner" // Add this line
+  };
+  const titleEl = document.getElementById("current-view-title");
+  if (titleEl) titleEl.textContent = titles[viewName] || viewName;
+  this.renderCurrentView();
+  if (window.innerWidth <= 768) this.toggleMobileMenu(false);
+}
 
   _toDateOnly(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
   _isSameDay(a,b){ return this._toDateOnly(a).getTime()===this._toDateOnly(b).getTime(); }
@@ -770,11 +794,12 @@ _handleSidebarViewClick(view) {
     localStorage.setItem("lmz-hours-order-" + dateKey, JSON.stringify(ids || []));
   }
 
-  renderCurrentView() {
-    if (this.currentView === "horizons") this.renderHorizonsView();
-    else if (this.currentView === "cascade") this.renderCascadeView();
-    else if (this.currentView === "calendar") this.renderCalendarView();
-  }
+renderCurrentView() {
+  if (this.currentView === "horizons") this.renderHorizonsView();
+  else if (this.currentView === "cascade") this.renderCascadeView();
+  else if (this.currentView === "calendar") this.renderCalendarView();
+  else if (this.currentView === "weekly") this.renderWeeklyPlanner(); // Add this line
+}
 
   renderHorizonsView() {
     const horizons = ["hours", "days", "weeks", "months", "years", "life"];
@@ -1330,7 +1355,110 @@ updateCascadeOptions() {
   }
   escapeHtml(text){ const div=document.createElement("div"); div.textContent=text; return div.innerHTML; }
   updateDateDisplay(){ const base=this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); const el=document.getElementById("current-date"); if (el) el.textContent=base.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" }); }
-}
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+  }
+  escapeHtml(text){ const div=document.createElement("div"); div.textContent=text; return div.innerHTML; }
+  updateDateDisplay(){ const base=this.hoursDateOverride ? new Date(this.hoursDateOverride) : new Date(); const el=document.getElementById("current-date"); if (el) el.textContent=base.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" }); }
+
+  /* ================================
+     Weekly Planner Methods
+     ================================ */
+  renderWeeklyPlanner() {
+    const view = document.getElementById("weekly-view");
+    if (!view) return;
+    
+    const today = new Date();
+    if (!this.weeklyStartDate) {
+      this.weeklyStartDate = this.getMonday(today);
+    }
+    
+    view.innerHTML = this.generateWeeklyPlannerHTML(this.weeklyStartDate);
+  }
+
+  getMonday(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    return new Date(d.setDate(diff));
+  }
+
+  generateWeeklyPlannerHTML(startDate) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    let html = `
+      <div class="weekly-planner-header">
+        <button class="header-btn" onclick="app.previousWeek()"><i class="fas fa-chevron-left"></i></button>
+        <h3>Week of ${startDate.toLocaleDateString()}</h3>
+        <button class="header-btn" onclick="app.nextWeek()"><i class="fas fa-chevron-right"></i></button>
+        <button class="header-btn" onclick="app.jumpToThisWeek()" style="margin-left:auto;"><i class="fas fa-dot-circle"></i> This Week</button>
+      </div>
+      <div class="weekly-grid">
+    `;
+    
+    const currentDate = new Date(startDate);
+    for (let i = 0; i < 7; i++) {
+      const dateStr = this.toInputDate(currentDate);
+      const tasks = this.getTasksForDate(dateStr);
+      
+      html += `
+        <div class="weekly-day" data-date="${dateStr}">
+          <div class="weekly-day-header">
+            <strong>${days[i]}</strong>
+            <span>${currentDate.getDate()}</span>
+          </div>
+          <div class="weekly-tasks">
+            ${tasks.map(task => `
+              <div class="weekly-task" data-id="${task.id}">
+                <div class="weekly-task-time">${task.timeSettings?.startTime || ''}</div>
+                <div class="weekly-task-title">${this.escapeHtml(task.title)}</div>
+              </div>
+            `).join('')}
+            ${tasks.length === 0 ? '<div class="empty-state">No tasks</div>' : ''}
+          </div>
+          <button class="weekly-add-btn" onclick="app.addToDate('${dateStr}')">
+            <i class="fas fa-plus"></i> Add Task
+          </button>
+        </div>
+      `;
+      
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    html += `</div>`;
+    return html;
+  }
+
+  getTasksForDate(dateStr) {
+    return this.data.tasks.filter(task => 
+      !task.completed && 
+      task.timeSettings?.date === dateStr
+    );
+  }
+
+  addToDate(dateStr) {
+    const preset = { 
+      horizon: "hours", 
+      timeSettings: { date: dateStr, startTime: "09:00", endTime: "10:00", repeat: "none", weekdays: [] } 
+    };
+    this.openTaskModal(preset);
+  }
+
+  previousWeek() {
+    this.weeklyStartDate.setDate(this.weeklyStartDate.getDate() - 7);
+    this.renderWeeklyPlanner();
+  }
+
+  nextWeek() {
+    this.weeklyStartDate.setDate(this.weeklyStartDate.getDate() + 7);
+    this.renderWeeklyPlanner();
+  }
+
+  jumpToThisWeek() {
+    this.weeklyStartDate = this.getMonday(new Date());
+    this.renderWeeklyPlanner();
+  }
+
+} // <-- This is the closing brace of the LifeMapzApp class
 
 /* --------------------- Boot --------------------- */
 document.addEventListener("DOMContentLoaded", () => { window.app = new LifeMapzApp(); });
+
