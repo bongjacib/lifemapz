@@ -1088,52 +1088,53 @@ class LifeMapzApp {
   }
 
   /* -------- Task modals -------- */
-  openTaskModal(taskData = {}) {
-    const isEdit = !!taskData.id;
-    const titleEl = document.getElementById("task-modal-title");
-    const submitText = document.getElementById("task-submit-text");
-    if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
-    if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
+ openTaskModal(taskData = {}) {
+  const isEdit = !!taskData.id;
 
-    // Reset form for new tasks, then populate fields
-    const form = document.getElementById("task-form");
-    if (!isEdit) form?.reset();
+  // Header text
+  const titleEl = document.getElementById("task-modal-title");
+  const submitText = document.getElementById("task-submit-text");
+  if (titleEl) titleEl.textContent = isEdit ? "Edit Task" : "Add Task";
+  if (submitText) submitText.textContent = isEdit ? "Update Task" : "Add Task";
 
-    // Always keep a working copy for time settings
-    this.currentTaskTimeData = { ...taskData };
+  // Keep a copy for the time modal
+  this.currentTaskTimeData = { ...taskData };
 
-    // Pre-fill fields
-    const titleIn = document.getElementById("task-title");
-    const descIn  = document.getElementById("task-description");
-    const horizonIn = document.getElementById("task-horizon");
-    const prioIn  = document.getElementById("task-priority");
+  if (isEdit) {
+    // ---- Edit existing ----
+    document.getElementById("edit-task-id").value = taskData.id;
+    document.getElementById("task-title").value = taskData.title || "";
+    document.getElementById("task-description").value = taskData.description || "";
+    document.getElementById("task-horizon").value = taskData.horizon || "hours";
+    document.getElementById("task-priority").value = taskData.priority || "medium";
+    this.updateTimeSummary();
+  } else {
+    // ---- NEW: Respect presets passed from addToHorizon() ----
+    document.getElementById("task-form").reset();
+    document.getElementById("edit-task-id").value = "";
 
-    if (isEdit) {
-      document.getElementById("edit-task-id").value = taskData.id;
-      if (titleIn)  titleIn.value  = taskData.title || "";
-      if (descIn)   descIn.value   = taskData.description || "";
-      if (horizonIn)horizonIn.value= taskData.horizon || "hours";
-      if (prioIn)   prioIn.value   = taskData.priority || "medium";
-    } else {
-      document.getElementById("edit-task-id").value = "";
-      if (titleIn)  titleIn.value  = taskData.title || "";
-      if (descIn)   descIn.value   = taskData.description || "";
-      if (horizonIn)horizonIn.value= taskData.horizon || "hours";
-      if (prioIn)   prioIn.value   = taskData.priority || "medium";
+    // Prefill from taskData when provided (e.g., { horizon:'hours', timeSettings:{...} })
+    if (taskData.title) document.getElementById("task-title").value = taskData.title;
+    if (taskData.description) document.getElementById("task-description").value = taskData.description;
 
-      // If opening "+ Hours" or hoursDateOverride is set, make sure time/date defaults exist
-      if ((taskData.horizon || "hours") === "hours") {
-        const dateKey = this.hoursDateOverride || this.toInputDate(new Date());
-        this.currentTaskTimeData.timeSettings = this.currentTaskTimeData.timeSettings || {
-          date: dateKey, startTime: "09:00", endTime: "10:00", repeat: "none", weekdays: []
-        };
-      }
+    // Default to 'hours' when opening from Hours "+" (taskData.horizon will be 'hours')
+    document.getElementById("task-horizon").value = taskData.horizon || "hours";
+    document.getElementById("task-priority").value = taskData.priority || "medium";
+
+    // Time summary
+    const summary = document.getElementById("time-summary");
+    if (taskData.timeSettings) {
+      this.currentTaskTimeData.timeSettings = taskData.timeSettings;
+      this.updateTimeSummary();
+    } else if (summary) {
+      summary.textContent = "No time set";
     }
-
-    this.updateCascadeOptions();
-    this.updateTimeSummary(); // reflect any preset times in the chip
-    this.openModal("task-modal");
   }
+
+  // Update cascade UI and show modal
+  this.updateCascadeOptions();
+  this.openModal("task-modal");
+}
 
   updateCascadeOptions() {
     const horizon = document.getElementById("task-horizon").value;
