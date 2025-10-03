@@ -948,7 +948,7 @@ renderCurrentView() {
   }
 
 renderCascadeView() {
-  const horizons = ["life", "years", "months", "weeks", "days"]; // Removed "hours"
+  const horizons = ["life", "years", "months", "days"]; // Removed "weeks" (Weekly Planner)
   horizons.forEach(h => {
     const container = document.getElementById(`cascade-${h}`);
     if (!container) return;
