@@ -41,48 +41,103 @@
         </div>
 
         <div class="task-actions" style="display:flex;gap:6px;">
-          <button class="task-btn lmz-move-up" title="Move up (Alt+↑)"><i class="fas fa-arrow-up"></i></button>
-          <button class="task-btn lmz-move-down" title="Move down (Alt+↓)"><i class="fas fa-arrow-down"></i></button>
-          <button class="task-btn lmz-edit" title="Edit"><i class="fas fa-edit"></i></button>
-          <button class="task-btn lmz-delete" title="Delete"><i class="fas fa-trash"></i></button>
+          <button class="task-btn lmz-move-up" title="Move up (Alt+↑)" data-action="move-up"><i class="fas fa-arrow-up"></i></button>
+          <button class="task-btn lmz-move-down" title="Move down (Alt+↓)" data-action="move-down"><i class="fas fa-arrow-down"></i></button>
+          <button class="task-btn lmz-edit" title="Edit" data-action="edit"><i class="fas fa-edit"></i></button>
+          <button class="task-btn lmz-delete" title="Delete" data-action="delete"><i class="fas fa-trash"></i></button>
         </div>
       </div>
     `;
   }
 
   function bindCardControls(container, onReorder, onEdit, onDelete) {
-    const list = container;
-
+    console.log('Binding card controls');
+    
     function order() {
-      return Array.from(list.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+      return Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
     }
 
-    list.addEventListener('click', (e) => {
+    // Use event delegation for better performance and reliability
+    container.addEventListener('click', (e) => {
+      const button = e.target.closest('.task-btn');
+      if (!button) return;
+      
+      const card = button.closest('.lmz-card');
+      if (!card) return;
+      
+      const id = card.dataset.id;
+      const action = button.dataset.action;
+      
+      console.log('Button clicked:', action, 'for task:', id);
+      
+      e.stopPropagation();
+      
+      switch (action) {
+        case 'move-up':
+          console.log('Move up clicked');
+          const prev = card.previousElementSibling;
+          if (prev && prev.classList.contains('lmz-card')) {
+            container.insertBefore(card, prev);
+            if (typeof onReorder === 'function') {
+              onReorder(order());
+            }
+          }
+          break;
+          
+        case 'move-down':
+          console.log('Move down clicked');
+          const next = card.nextElementSibling;
+          if (next && next.classList.contains('lmz-card')) {
+            container.insertBefore(next, card);
+            if (typeof onReorder === 'function') {
+              onReorder(order());
+            }
+          }
+          break;
+          
+        case 'edit':
+          console.log('Edit clicked');
+          if (typeof onEdit === 'function') {
+            onEdit(id);
+          }
+          break;
+          
+        case 'delete':
+          console.log('Delete clicked');
+          if (typeof onDelete === 'function') {
+            onDelete(id);
+          }
+          break;
+      }
+    });
+
+    // Also handle Alt+Arrow keyboard shortcuts
+    container.addEventListener('keydown', (e) => {
+      if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+      
       const card = e.target.closest('.lmz-card');
       if (!card) return;
-      const id = card.dataset.id;
-
-      if (e.target.closest('.lmz-edit')) {
-        if (typeof onEdit === 'function') onEdit(id);
-        return;
-      }
-      if (e.target.closest('.lmz-delete')) {
-        if (typeof onDelete === 'function') onDelete(id);
-        return;
-      }
-      if (e.target.closest('.lmz-move-up')) {
+      
+      e.preventDefault();
+      
+      if (e.key === 'ArrowUp') {
         const prev = card.previousElementSibling;
-        if (prev) list.insertBefore(card, prev);
-        if (typeof onReorder === 'function') onReorder(order());
-        return;
-      }
-      if (e.target.closest('.lmz-move-down')) {
+        if (prev && prev.classList.contains('lmz-card')) {
+          container.insertBefore(card, prev);
+          if (typeof onReorder === 'function') {
+            onReorder(order());
+          }
+        }
+      } else if (e.key === 'ArrowDown') {
         const next = card.nextElementSibling;
-        if (next) list.insertBefore(next, card);
-        if (typeof onReorder === 'function') onReorder(order());
-        return;
+        if (next && next.classList.contains('lmz-card')) {
+          container.insertBefore(next, card);
+          if (typeof onReorder === 'function') {
+            onReorder(order());
+          }
+        }
       }
-    }, false);
+    });
   }
 
   const HoursCards = {
@@ -103,7 +158,7 @@
         tasks = [];
       }
       
-      console.log('HoursCards: mounting', tasks.length, 'tasks');
+      console.log('HoursCards: mounting', tasks.length, 'tasks with options:', opts);
       
       const html = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
       container.innerHTML = html;
@@ -140,21 +195,9 @@
         HoursCards._sortable.destroy();
         HoursCards._sortable = null;
       }
-    },
-    
-    /**
-     * Update tasks in an already mounted container
-     */
-    update(container, tasks, opts = {}) {
-      this.destroy();
-      return this.mount(container, tasks, opts);
     }
   };
 
   // Export to global scope
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = HoursCards;
-  } else {
-    global.HoursCards = HoursCards;
-  }
-})(typeof window !== 'undefined' ? window : this);
+  global.HoursCards = HoursCards;
+})(window);
