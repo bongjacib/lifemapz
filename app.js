@@ -14,6 +14,7 @@
    - ✨ "+" in Hours pre-fills the selected day for new tasks
    - ✅ FIXED: Hours view buttons (up/down/edit/delete) now work properly
    - ✅ FIXED: Cascade options no longer auto-selected for new tasks
+   - ✅ Hours DnD is handle-only (grip icon); action buttons never start drag
 */
 
 const APP_VERSION = (window && window.LIFEMAPZ_VERSION) || "3.1.3";
@@ -199,7 +200,7 @@ class CloudSyncService {
     if (!id) throw new Error("JSONBin: no id in response");
     this.jsonbin.binId = id;
     this.backend = "jsonbin";
-    this._sessionId = `jsonbin:${id}`;
+       this._sessionId = `jsonbin:${id}`;
     this._saveSession();
   }
 
@@ -768,42 +769,28 @@ class LifeMapzApp {
       if (DEBUG) console.log(`Rendering ${h} view with`, tasks.length, 'tasks');
 
       if (h === "hours") {
-        // Use HoursCards for the hours view
-        if (DEBUG) console.log('Attempting to use HoursCards for hours view');
-        
+        // Use HoursCards (preferred)
         if (window.HoursCards && typeof window.HoursCards.mount === 'function') {
           try { window.HoursCards.unmount?.(container); } catch {}
-          console.log('HoursCards found, mounting with callbacks...');
           window.HoursCards.mount(container, tasks, {
-            onReorder: (ids) => {
-              console.log('onReorder callback called with:', ids);
-              this.handleHoursReorder(ids);
-            },
-            onEdit: (id) => {
-              console.log('onEdit callback called with:', id);
-              this.editTask(id);
-            },
-            onDelete: (id) => {
-              console.log('onDelete callback called with:', id);
-              this.deleteTask(id);
-            }
+            onReorder: (ids) => this.handleHoursReorder(ids),
+            onEdit: (id) => this.editTask(id),
+            onDelete: (id) => this.deleteTask(id)
           });
-          console.log('HoursCards mount completed');
         } else {
-          if (DEBUG) console.log('HoursCards not available, using fallback');
-          // Fallback to regular rendering
-          container.innerHTML = tasks.length === 0 ?
-            '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
-            tasks.map(t => this.renderTaskItem(t)).join("");
+          // Fallback rendering with HANDLE-ONLY drag
+          container.innerHTML = tasks.length === 0
+            ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
+            : tasks.map(t => this.renderTaskItem(t)).join("");
 
-          // Wire drag & drop for Hours list (per date)
+          // Wire drag & drop for Hours list (per date) — handle only
           this._wireHoursDnD(container, this._todayKey());
         }
       } else {
         // Regular rendering for other horizons
-        container.innerHTML = tasks.length === 0 ?
-          '<div class="empty-state">No tasks yet. Click + to add one.</div>' :
-          tasks.map(t => this.renderTaskItem(t)).join("");
+        container.innerHTML = tasks.length === 0
+          ? '<div class="empty-state">No tasks yet. Click + to add one.</div>'
+          : tasks.map(t => this.renderTaskItem(t)).join("");
       }
 
       // Add the "Back to Today" chip for hours view
@@ -837,23 +824,34 @@ class LifeMapzApp {
     this.showNotification("Tasks reordered", "success");
   }
 
-  // ----- Fallback drag & drop (Hours) -----
+  // ----- Fallback drag & drop (Hours) — HANDLE ONLY -----
   _wireHoursDnD(container, dateKey) {
+    // Drag only from the handle. Never from actions.
     container.querySelectorAll(".task-item").forEach(item => {
-      item.setAttribute("draggable", "true");
-      item.addEventListener("dragstart", (e) => {
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", item.dataset.id);
-        item.classList.add("dragging");
-      });
-      item.addEventListener("dragend", () => {
-        item.classList.remove("dragging");
-        const ids = Array.from(container.querySelectorAll(".task-item")).map(el => el.dataset.id);
-        this.setHoursOrder(dateKey, ids);
+      const handle = item.querySelector(".lmz-card-handle");
+      if (handle) {
+        handle.setAttribute("draggable", "true");
+        handle.addEventListener("dragstart", (e) => {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", item.dataset.id);
+          item.classList.add("dragging");
+        });
+        handle.addEventListener("dragend", () => {
+          item.classList.remove("dragging");
+          const ids = Array.from(container.querySelectorAll(".task-item")).map(el => el.dataset.id);
+          this.setHoursOrder(dateKey, ids);
+        });
+      }
+
+      // Make sure action buttons never begin a drag
+      item.querySelectorAll(".task-actions .task-btn").forEach(btn => {
+        btn.addEventListener("mousedown", (e) => e.stopPropagation(), true);
+        btn.addEventListener("touchstart", (e) => { e.stopPropagation(); }, { capture: true, passive: true });
+        btn.addEventListener("dragstart", (e) => e.preventDefault(), true);
       });
     });
 
-    container.ondragover = (e) => {
+    const onDragOver = (e) => {
       e.preventDefault();
       const after = this._getDragAfterElement(container, e.clientY);
       const dragging = container.querySelector(".task-item.dragging");
@@ -861,6 +859,9 @@ class LifeMapzApp {
       if (after == null) container.appendChild(dragging);
       else container.insertBefore(dragging, after);
     };
+
+    container.addEventListener("dragover", onDragOver);
+    container.addEventListener("drop", (e) => e.preventDefault());
   }
   _getDragAfterElement(container, y) {
     const items = [...container.querySelectorAll(".task-item:not(.dragging)")];
@@ -872,19 +873,24 @@ class LifeMapzApp {
     }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
   }
 
+  // Fallback task card (used only when HoursCards is unavailable)
   renderTaskItem(task) {
     const timeInfo = task.timeSettings ? this.renderTimeInfo(task.timeSettings) : "";
     return `
-      <div class="task-item" data-id="${task.id}">
-        <div class="task-content">
+      <div class="task-item lmz-card" data-id="${task.id}">
+        <div class="lmz-card-handle" title="Drag to reorder" aria-label="Drag handle"
+             style="cursor:grab;display:flex;align-items:center;justify-content:center;width:34px;min-width:34px;height:34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-tertiary);">
+          <i class="fas fa-grip-vertical"></i>
+        </div>
+        <div class="task-content" style="padding-left:8px;">
           <div class="task-title">${this.escapeHtml(task.title)}</div>
           ${task.description ? `<div class="task-meta">${this.escapeHtml(task.description)}</div>` : ""}
           ${timeInfo}
           ${task.cascadesTo && task.cascadesTo.length > 0 ? `<div class="task-meta"><small>Cascades to: ${task.cascadesTo.join(", ")}</small></div>` : ""}
         </div>
-        <div class="task-actions">
-          <button class="task-btn" onclick="app.editTask('${task.id}')" title="Edit Task"><i class="fas fa-edit"></i></button>
-          <button class="task-btn" onclick="app.deleteTask('${task.id}')" title="Delete Task"><i class="fas fa-trash"></i></button>
+        <div class="task-actions" style="display:flex;gap:6px;">
+          <button type="button" class="task-btn" onclick="app.editTask('${task.id}')" title="Edit Task"><i class="fas fa-edit"></i></button>
+          <button type="button" class="task-btn" onclick="app.deleteTask('${task.id}')" title="Delete Task"><i class="fas fa-trash"></i></button>
         </div>
       </div>`;
   }
@@ -1151,12 +1157,8 @@ class LifeMapzApp {
         cb.disabled = targetIndex <= currentIndex;
         
         // FIX: NEVER auto-check any checkboxes
-        // Only maintain existing checked state if editing, otherwise uncheck all
         const isEdit = !!this.currentTaskTimeData?.id;
-        if (!isEdit) {
-          cb.checked = false;
-        }
-        // For existing tasks, the checked state is already set by openTaskModal
+        if (!isEdit) cb.checked = false;
       });
     } else {
       cascadeGroup.style.display = "none";
