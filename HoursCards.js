@@ -51,102 +51,92 @@
   }
 
   function bindCardControls(container, onReorder, onEdit, onDelete) {
-    console.log('Binding card controls');
-    
+    console.log('Binding card controls with callbacks:', {
+      hasOnReorder: typeof onReorder === 'function',
+      hasOnEdit: typeof onEdit === 'function', 
+      hasOnDelete: typeof onDelete === 'function'
+    });
+
     function order() {
       return Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
     }
 
-    // Use event delegation for better performance and reliability
-    container.addEventListener('click', (e) => {
+    // Use a single event listener for the container
+    container.addEventListener('click', function(e) {
+      console.log('=== CLICK EVENT ===');
+      console.log('Clicked element:', e.target);
+      console.log('Button element:', e.target.closest('.task-btn'));
+      
       const button = e.target.closest('.task-btn');
-      if (!button) return;
+      if (!button) {
+        console.log('No button found');
+        return;
+      }
       
       const card = button.closest('.lmz-card');
-      if (!card) return;
+      if (!card) {
+        console.log('No card found');
+        return;
+      }
       
       const id = card.dataset.id;
       const action = button.dataset.action;
       
-      console.log('Button clicked:', action, 'for task:', id);
+      console.log('Action:', action, 'Task ID:', id);
       
+      e.preventDefault();
       e.stopPropagation();
       
       switch (action) {
         case 'move-up':
-          console.log('Move up clicked');
+          console.log('Processing move-up');
           const prev = card.previousElementSibling;
           if (prev && prev.classList.contains('lmz-card')) {
             container.insertBefore(card, prev);
             if (typeof onReorder === 'function') {
+              console.log('Calling onReorder');
               onReorder(order());
             }
           }
           break;
           
         case 'move-down':
-          console.log('Move down clicked');
+          console.log('Processing move-down');
           const next = card.nextElementSibling;
           if (next && next.classList.contains('lmz-card')) {
             container.insertBefore(next, card);
             if (typeof onReorder === 'function') {
+              console.log('Calling onReorder');
               onReorder(order());
             }
           }
           break;
           
         case 'edit':
-          console.log('Edit clicked');
+          console.log('Processing edit, calling onEdit with id:', id);
           if (typeof onEdit === 'function') {
             onEdit(id);
+          } else {
+            console.error('onEdit is not a function!');
           }
           break;
           
         case 'delete':
-          console.log('Delete clicked');
+          console.log('Processing delete, calling onDelete with id:', id);
           if (typeof onDelete === 'function') {
             onDelete(id);
+          } else {
+            console.error('onDelete is not a function!');
           }
           break;
-      }
-    });
-
-    // Also handle Alt+Arrow keyboard shortcuts
-    container.addEventListener('keydown', (e) => {
-      if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
-      
-      const card = e.target.closest('.lmz-card');
-      if (!card) return;
-      
-      e.preventDefault();
-      
-      if (e.key === 'ArrowUp') {
-        const prev = card.previousElementSibling;
-        if (prev && prev.classList.contains('lmz-card')) {
-          container.insertBefore(card, prev);
-          if (typeof onReorder === 'function') {
-            onReorder(order());
-          }
-        }
-      } else if (e.key === 'ArrowDown') {
-        const next = card.nextElementSibling;
-        if (next && next.classList.contains('lmz-card')) {
-          container.insertBefore(next, card);
-          if (typeof onReorder === 'function') {
-            onReorder(order());
-          }
-        }
+          
+        default:
+          console.log('Unknown action:', action);
       }
     });
   }
 
   const HoursCards = {
-    /**
-     * Mounts cards into the provided container.
-     * @param {HTMLElement} container - the #hours-tasks container
-     * @param {Array} tasks - already-filtered, already-ordered tasks for the selected Hours day
-     * @param {Object} opts - { onReorder(ids), onEdit(id), onDelete(id) }
-     */
     mount(container, tasks, opts = {}) {
       if (!container) {
         console.warn('HoursCards: container not found');
@@ -158,38 +148,33 @@
         tasks = [];
       }
       
-      console.log('HoursCards: mounting', tasks.length, 'tasks with options:', opts);
+      console.log('HoursCards: mounting', tasks.length, 'tasks');
       
       const html = tasks.map(renderCard).join('') || '<div class="empty-state">No tasks yet. Click + to add one.</div>';
       container.innerHTML = html;
 
-      // Wire up button controls
+      // Wire up button controls with the provided options
       bindCardControls(container, opts.onReorder, opts.onEdit, opts.onDelete);
 
-      // Enable drag & drop (desktop) + Alt+Arrow keyboard fallback
+      // Enable drag & drop
       if (window.DnD && typeof window.DnD.list === 'function') {
         console.log('HoursCards: enabling DnD');
         HoursCards._sortable = window.DnD.list(container, {
           itemSelector: '.lmz-card',
           handleSelector: '.lmz-card-handle',
           onReorder: (data) => { 
-            console.log('HoursCards: reorder', data);
+            console.log('HoursCards: DnD reorder', data);
             if (typeof opts.onReorder === 'function') {
               const ids = Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
               opts.onReorder(ids);
             }
           }
         });
-      } else {
-        console.warn('HoursCards: DnD not available');
       }
       
       return HoursCards;
     },
 
-    /**
-     * Clean up and destroy the HoursCards instance
-     */
     destroy() {
       if (HoursCards._sortable && typeof HoursCards._sortable.destroy === 'function') {
         HoursCards._sortable.destroy();
@@ -198,6 +183,5 @@
     }
   };
 
-  // Export to global scope
   global.HoursCards = HoursCards;
 })(window);
