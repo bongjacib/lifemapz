@@ -1,124 +1,124 @@
-/*! LifeMapz — ultra-light Sortable helper (mouse + keyboard) */
-(function (global) {
-  function closest(el, sel) {
-    while (el && el.nodeType === 1) {
-      if (el.matches(sel)) return el;
-      el = el.parentElement;
+/* Lightweight drag & drop list helper (mouse, touch, keyboard)
+   Exposes: window.DnD.list(container, { itemSelector, handleSelector, onReorder })
+*/
+(function (root) {
+  function list(container, {
+    itemSelector = ".task-item",
+    handleSelector = "[data-drag-handle]",
+    onReorder = null
+  } = {}) {
+    const el = typeof container === "string" ? document.querySelector(container) : container;
+    if (!el) return { destroy() {} };
+
+    const items = () => Array.from(el.querySelectorAll(itemSelector));
+    const indexOf = (node) => items().indexOf(node);
+
+    let dragEl = null, placeholder = null, startIndex = -1, offsetY = 0;
+
+    function moveAt(clientY) {
+      const y = clientY - offsetY + window.scrollY;
+      dragEl.style.top = `${y}px`;
+      dragEl.style.left = `${placeholder.getBoundingClientRect().left}px`;
     }
-    return null;
-  }
 
-  function indexOf(el) {
-    return Array.prototype.indexOf.call(el.parentNode.children, el);
-  }
-
-  function moveEl(parent, from, to) {
-    if (to < 0 || to >= parent.children.length) return;
-    const node = parent.children[from];
-    const ref = parent.children[to];
-    if (!node || !ref) return;
-    parent.insertBefore(node, from < to ? ref.nextSibling : ref);
-  }
-
-  function getOrder(container, itemSelector) {
-    return Array.from(container.querySelectorAll(itemSelector)).map((n) => n.dataset.id);
-  }
-
-  function getDragAfterElement(container, y, itemSelector) {
-    const els = [...container.querySelectorAll(itemSelector + ':not(.dnd-dragging)')];
-    return els
-      .map(el => {
-        const rect = el.getBoundingClientRect();
-        return { el, offset: y - (rect.top + rect.height / 2) };
-      })
-      .filter(x => x.offset < 0)
-      .sort((a, b) => b.offset - a.offset)[0]?.el || null;
-  }
-
-  function sortable(container, opts = {}) {
-    const itemSelector = opts.items || '.lmz-card';
-    const handleSelector = opts.handle || '.lmz-card-handle';
-    const onUpdate = typeof opts.onUpdate === 'function' ? opts.onUpdate : function () {};
-    let dragEl = null;
-    let allowDragFromHandle = false;
-
-    // Mark items focusable for keyboard reordering
-    function armItems() {
-      container.querySelectorAll(itemSelector).forEach((el) => {
-        el.setAttribute('tabindex', '0');
-        el.setAttribute('role', 'listitem');
-        el.setAttribute('aria-grabbed', 'false');
-        el.draggable = true; // HTML5 drag (desktop)
-      });
-    }
-    armItems();
-
-    // Only start drag if the mousedown/touchstart came from the handle
-    container.addEventListener('mousedown', (e) => {
-      const h = closest(e.target, handleSelector);
-      allowDragFromHandle = !!h;
-    }, true);
-    container.addEventListener('touchstart', (e) => {
-      const t = e.targetTouches && e.targetTouches[0] ? e.targetTouches[0].target : e.target;
-      const h = closest(t, handleSelector);
-      allowDragFromHandle = !!h;
-    }, { passive: true, capture: true });
-
-    container.addEventListener('dragstart', (e) => {
-      const card = closest(e.target, itemSelector);
-      if (!card) return e.preventDefault();
-      if (!allowDragFromHandle) return e.preventDefault();
-      dragEl = card;
-      card.classList.add('dnd-dragging');
-      card.setAttribute('aria-grabbed', 'true');
-      try { e.dataTransfer.setData('text/plain', card.dataset.id || ''); } catch {}
-      e.dataTransfer.effectAllowed = 'move';
-    });
-
-    container.addEventListener('dragend', () => {
+    function onPointerDown(e) {
+      const handle = e.target.closest(handleSelector) || e.target.closest(itemSelector);
+      if (!handle) return;
+      dragEl = handle.closest(itemSelector);
       if (!dragEl) return;
-      dragEl.classList.remove('dnd-dragging');
-      dragEl.setAttribute('aria-grabbed', 'false');
-      dragEl = null;
-      allowDragFromHandle = false;
-      onUpdate(getOrder(container, itemSelector));
-    });
 
-    container.addEventListener('dragover', (e) => {
       e.preventDefault();
-      const after = getDragAfterElement(container, e.clientY, itemSelector);
+
+      const pointY = e.touches ? e.touches[0].clientY : e.clientY;
+      const rect = dragEl.getBoundingClientRect();
+      offsetY = pointY - rect.top;
+      startIndex = indexOf(dragEl);
+
+      // visual state
+      placeholder = document.createElement("div");
+      placeholder.className = "drag-placeholder";
+      placeholder.style.height = `${rect.height}px`;
+      dragEl.after(placeholder);
+
+      dragEl.classList.add("dragging");
+      dragEl.style.position = "absolute";
+      dragEl.style.width = `${rect.width}px`;
+      dragEl.style.zIndex = "1000";
+      dragEl.style.pointerEvents = "none";
+      moveAt(pointY);
+
+      document.addEventListener("pointermove", onPointerMove, { passive: false });
+      document.addEventListener("pointerup", onPointerUp);
+      document.addEventListener("touchmove", onPointerMove, { passive: false });
+      document.addEventListener("touchend", onPointerUp);
+    }
+
+    function onPointerMove(e) {
       if (!dragEl) return;
-      if (after == null) {
-        container.appendChild(dragEl);
-      } else {
-        container.insertBefore(dragEl, after);
+      if (e.cancelable) e.preventDefault();
+      const pointY = e.touches ? e.touches[0].clientY : e.clientY;
+      moveAt(pointY);
+
+      const siblings = items().filter(n => n !== dragEl);
+      let target = null, before = true;
+      for (const sib of siblings) {
+        const r = sib.getBoundingClientRect();
+        const mid = r.top + r.height / 2;
+        if (pointY < mid) { target = sib; before = true; break; }
+        target = sib; before = false;
       }
-    });
+      if (target) (before ? target.before(placeholder) : target.after(placeholder));
+      else el.appendChild(placeholder);
+    }
 
-    container.addEventListener('drop', (e) => {
+    function onPointerUp() {
+      if (!dragEl) return;
+      dragEl.classList.remove("dragging");
+      dragEl.style.cssText = "";
+      placeholder.replaceWith(dragEl);
+
+      const newIndex = indexOf(dragEl);
+      const ids = items().map(n => n.dataset.id);
+      dragEl = null; placeholder = null;
+
+      if (onReorder && newIndex !== startIndex && startIndex > -1) {
+        onReorder({ from: startIndex, to: newIndex, ids });
+      }
+
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("touchmove", onPointerMove);
+      document.removeEventListener("touchend", onPointerUp);
+    }
+
+    // keyboard (Alt+↑ / Alt+↓)
+    el.addEventListener("keydown", (e) => {
+      if (!(e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown"))) return;
+      const row = e.target.closest(itemSelector);
+      if (!row) return;
       e.preventDefault();
-      // handled by dragend
+
+      const arr = items();
+      const i = indexOf(row);
+      const j = e.key === "ArrowUp" ? i - 1 : i + 1;
+      if (j < 0 || j >= arr.length) return;
+
+      if (e.key === "ArrowUp") arr[j].before(row); else arr[j].after(row);
+      onReorder && onReorder({ from: i, to: j, ids: items().map(n => n.dataset.id) });
+      row.focus();
     });
 
-    // Keyboard fallback: Alt+ArrowUp/Alt+ArrowDown
-    container.addEventListener('keydown', (e) => {
-      const card = closest(e.target, itemSelector);
-      if (!card) return;
-      if (!(e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown'))) return;
-      e.preventDefault();
-      const parent = card.parentElement;
-      const from = indexOf(card);
-      const to = e.key === 'ArrowUp' ? from - 1 : from + 1;
-      moveEl(parent, from, to);
-      card.focus();
-      onUpdate(getOrder(container, itemSelector));
-    });
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("touchstart", onPointerDown, { passive: false });
 
-    // Public refresh (if list re-rendered)
     return {
-      refresh: armItems
+      destroy() {
+        el.removeEventListener("pointerdown", onPointerDown);
+        el.removeEventListener("touchstart", onPointerDown);
+      }
     };
   }
 
-  global.DND = { sortable };
+  // expose global
+  root.DnD = { list };
 })(window);
