@@ -100,11 +100,17 @@
       bindCardControls(container, opts.onReorder, opts.onEdit, opts.onDelete);
 
       // Enable drag & drop (desktop) + Alt+Arrow keyboard fallback
-      if (window.DND && typeof window.DND.sortable === 'function') {
-        HoursCards._sortable = window.DND.sortable(container, {
-          items: '.lmz-card',
-          handle: '.lmz-card-handle',
-          onUpdate: (ids) => { if (typeof opts.onReorder === 'function') opts.onReorder(ids); }
+      // FIXED: Use window.DnD.list instead of window.DND.sortable
+      if (window.DnD && typeof window.DnD.list === 'function') {
+        HoursCards._sortable = window.DnD.list(container, {
+          itemSelector: '.lmz-card',
+          handleSelector: '.lmz-card-handle',
+          onReorder: (data) => { 
+            if (typeof opts.onReorder === 'function') {
+              const ids = Array.from(container.querySelectorAll('.lmz-card')).map(n => n.dataset.id);
+              opts.onReorder(ids);
+            }
+          }
         });
       }
     }
